@@ -992,11 +992,12 @@ def get_l_fn_note_with_citekey(s_note_source_citekey: str) -> list[str]:
 
 """
 obsidian:
-Obsidian 'Zotero Integration Plugin':
-   >san_nunjucks.nunjucks< (== >san_nunjucks.md<)  template to import >source note< from zotero.
+Obsidian 'Zotero Integration Plugin': Template file:
+   >san_nunjucks.md< (== >san_nunjucks.nunjucks<) 
+      == template to import >source note< from zotero.
 
-Obsidian 'Shell commands plugin':
-   calls >san.exe< (== >split annotation note.py<) to split >source note< into obsidian atomic notes.    
+Obsidian 'Shell commands plugin' calls:
+   >san.exe< (== >split annotation note.py<) to split >source note< into obsidian atomic notes.    
 
 ------------------------------------------------------------------------------------------------------------------------
 
@@ -1114,12 +1115,12 @@ def b_check_path_exists(l_path: list[Path]):
             msg = f"{p_fn =} does not exist => exit()."
             messagebox.showinfo(f"{os.path.basename(p_fn) =}", msg)
             exit()
-    return
+    return True
 
 
 def b_san_nunjucks_version_exists(p_fn: str):
     if not get_value_from_dict_of_path(p_fn_note_source, "['san']['nunjucks_template']['version']"):
-        msg = f"{p_fn =} not imported by nunjucks-template? => exit()."
+        msg = f"function b_san_nunjucks_version_exists(): \n\n{os.path.basename(p_fn)} \n\nNo nunjucks-template signature found? => exit()."
         messagebox.showinfo(f"{os.path.basename(p_fn) =}", msg)
         return False
     else:
@@ -1134,6 +1135,8 @@ if __name__ == '__main__':
         print(f"Received s_content: {fn_note_source}")
     else:  # Test
         fn_note_source = "bismarkLegal2012.md"
+        fn_note_source = "bleasePaternalismus2016.2025-11-14._ok_.md"
+        fn_note_source = "bleasePaternalismus2016.md"
         print(f"No >note.md< name provided, take >{fn_note_source}<")
 
     p_fn_note_source: Path = Path(os.path.join(path_in, fn_note_source))
@@ -1149,22 +1152,15 @@ if __name__ == '__main__':
         backup_note_source_with_timestamp(p_fn_note_source)
         # backup_note_source(p_fn_note_source)
 
-# ToDo:
-#  zotero: There duplicates in the pdf folder. How can I get rid of them, without damaging the database?
-#  * https://info.library.okstate.edu/zotero/storage
-
-# ToDo:
-#  >san.py< & >san.nunjucks< into
-#   - one common directory and
-#   - one common git repository (local and github).
-
-# ToDo:
-#  >san.py<  in *.exe verwandeln
-#       >_ pip install pyinstaller
-#       >_
-#       >_ pyinstaller --onefile -w 'san.py'
-
 # nb:
+#  pip freeze > requirements.txt
+#  .
+#  find . -name '*.md' -exec sed -i -e 's/string_111/string_222/g' {} \;
+#  .
+#  >san.py<  transform in *.exe
+#       >_ pip install pyinstaller
+#       >_ pyinstaller --onefile -w 'san.py'
+#       .
 #  Obsidian community plugin: 'Shell commands' calls >san.exe< via shortcut
 #    https://github.com/Taitava/obsidian-shellcommands
 #    .
