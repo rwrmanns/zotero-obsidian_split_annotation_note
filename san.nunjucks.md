@@ -1,0 +1,139 @@
+---
+{# nunjucks-template to import zotero sources into obsidian via 'zotero integration plugin' -#}
+{# Save as *.md file - otherwise 'zotero integration plugin' can't make use of it. -#}
+{# Thanks to mgmeyers! Inspired partly by Elena Razlogova and others. -#}
+{# Three underscores at begin of line -> horizontal line. -#}
+{# Minus sign at beginning/end of comment eats up spaces, but not: -#}
+{# \n == two spaces at begin of line  -#}
+{# https://github.com/alex-kline/obsidian-zotero/ -#}
+{% if citekey %}title: {{citekey}}{% endif %}
+cssclass: research-note
+{% set vars = [
+  { "name": "key", "value": key },
+  { "name": "title", "value": title },
+  { "name": "publicationTitle", "value": publicationTitle },
+  { "name": "authors", "value": authors },
+  { "name": "itemType", "value": itemType },
+  { "name": "archive", "value": archive },
+  { "name": "archiveLocation", "value": archiveLocation },
+  { "name": "uri", "value": uri },
+  { "name": "desktopURI", "value": desktopURI },
+  { "name": "pdfZoteroLink", "value": pdfZoteroLink },
+  { "name": "attachment.path", "value": attachment.path }
+] -%}
+{% if vars | selectattr("value") | list | length > 0 -%}
+zotero_fields:
+   doc_0: 'date: 2025-10-01'
+   doc_1: '>fields< of source exported from zotero via zotero integration plugin to obsidian.'
+   doc_2: 'see: https://www.zotero.org/support/kb/item_types_and_fields'
+{% if citekey %}   citekey: {{citekey}}{% endif %}
+{% for v in vars %}
+   {%- if v.value %}   {{ v.name }}: "{{ v.value }}"{% else %}   {{ v.name }}: ""
+   {%- endif %}
+{% endfor %}{% endif -%}
+{% if date %}   date: {{date | format("YYYY-MM-DD")}}{% endif %}
+{% if dateAdded %}   dateAdded: {{dateAdded | format("YYYY-MM-DD")}}{% endif %} 
+{% if dateModified %}   dateModified: {{dateModified | format("YYYY-MM-DD")}}{% endif %}
+{% if importDate %}   importDate: {{importDate | format("YYYY-MM-DD hh:mm")}}{% endif %}
+{% if tags.length > 0 %}   tags: {% for t in tags -%}#{{t.tag | lower | replace(" ", "-") }}{% endfor %}{% endif %}
+{% if bibliography %}   bibliography: "{{bibliography | replace("[1]", "") | trim }}"{% endif %}
+{#- Cause of difficulties to open pdf in zotero (if not attachment !?): #}
+   # Cause of difficulties to open pdf in zotero (if not attachment !?) via @zotero_citekey:
+   # 'pdfZoteroLink' modified to '[pdf_Zot_Lnk]': seems to successfully open the pdf in zotero.
+{% if pdfZoteroLink %}{% set pdfZoteroLinkModified = pdfZoteroLink | replace("select", "open-pdf") | replace(r/\[.+\]/, '') | replace('(', '') | replace(')', '') %}{% endif -%}
+{% if pdfZoteroLinkModified %}   pdfZoteroLinkModified: "{{pdfZoteroLinkModified}}"{% endif %}
+{# {% if pdfZoteroLink %}   pdfZoteroLinkModified: "{{pdfZoteroLink | replace("select", "open-pdf") | replace(r/\[.+\]/, '[pdf_Zot_Lnk]')}}"{% endif %}  -#}
+{# citekey: {{citekey}} -#}
+{#  -#}
+{# san_ == 'split_in_atomic_notes' -#}
+san:
+   doc_0: 'san: >s_plit (in) a_tomic n_otes<.'
+   doc_1: 'san-marks like >Annotation_R32EDMK3: Begin/End< enable splitting of zotero items with annotations into atomic notes.'
+   doc_2: 'Every note in obsidian may correspond to one annotation in zotero. Versioning of atomic notes becomes easier.'
+   san_signature: 'san_signature_2025-10-01'
+   nunjucks_template: 
+      name: 'tmpl_zotero_Literature_Annotations__rh.nunjucks'
+      doc: 'scope: prepare zotero item with annotations to be splitted in obsidian into atomic annotation notes'
+      version: '0.2'
+      date: '2025-10-01'
+      date_vs: '2025-11-15'
+   note_origin : 'zotero'
+---
+{# Properties / frontmatter : End -#}
+{{bibliography | replace("[1]", "") | trim}}
+{# [online]({{uri}})    [pdf](file://{{attachment.path | replace(" ", "%20")}}) -#}
+[local]({{desktopURI}}) {%- for attachment in attachments | filterby("path", "endswith", ".pdf") %}     {% if loop.last %}{% endif %}{%- endfor %} 
+{% if date %}date: {{date | format("YYYY-MM-DD")}}{% endif -%}
+{% if importDate %}           Import: {{importDate | format("YYYY-MM-DD hh:mm")}}{% endif %}
+___
+{# comments in md are sourrounded by '%%' -#}
+{% persist "summary" %}{# nunjucks adds: >%% begin summary %%< -#}
+{%- if isFirstImport %}
+%% Summary_{{key}}: Begin %%
+{# {% if title %}## {{title}}{% endif %}  -#}
+### Résumé                                %% summary %%  
+### Zusammenhänge                         %% connections %%  
+### Kommentar                             %% comment %%  
+{# {% if notes.length > 0 -%}{% for note in notes %}{% if loop.first %}{{ note.note }}{% endif %}{% endfor %}{% endif -%} -#}
+{# {% if notes.length > 0 -%}{% for note in notes %}{{note.note}}{% endfor %}{% endif -%} #}
+### Tags                                    %% tags %% 
+{% if notes.length > 0 -%}
+{% for note in notes %}{% for t in note.tags %}#{{t.tag | lower | replace(" ", "_")}} {% endfor %}{% endfor %}
+{% endif -%}
+   {#- (Only tags - everything else will be deleted.) -#}
+### QA                                      %% QA %% 
+#QA_ToDo
+   {#- references == links to citations in zotero|internet -#}
+%% references %%
+{% set separator = "    ≡≡≡    " -%}
+Quelle: @{{citekey}}{{ separator }}{{firstAttachmentZoteroLink}}
+{%- if annotation.desktopURI %}{{ separator }}[Go to annotation]({{annotation.desktopURI}}){% endif %}
+{%- if pdfZoteroLinkModified  %}{{ separator }}[Open in Zotero]({{pdfZoteroLinkModified}}){%- endif %}
+{% endif -%}
+{% endpersist %}{# nunjucks adds: >%% end summary %%< -#}
+%% Summary_{{key}}: End %%
+{% macro calloutHeader(color) -%}
+{%- set text_type = '' -%}
+{%- if color == "#ff6666" -%}Definition: {%- set text_type = '#tt_Definition' -%}   {%- endif -%}{# red #}
+{%- if color == "#5fb236" -%}Arguments:  {%- set text_type = '#tt_Arguments' -%}    {%- endif -%}{# green #}
+{%- if color == "#2ea8e5" -%}Summary:    {%- set text_type = '#tt_Summary' -%}      {%- endif -%}{# blue #}
+{%- if color == "#a28ae5" -%}Conclusion: {%- set text_type = '#tt_Conclusion' -%}   {%- endif -%}{# Purple #}
+{%- if color == "#e56eee" -%}Hypothesis: {%- set text_type = '#tt_Hypothesis' -%}   {%- endif -%}{# Magenta #}
+{%- if color == "#f19837" -%}Fact:       {%- set text_type = '#tt_Fact' -%}         {%- endif -%}{# Orange #}
+{%- if color == "#aaaaaa" -%}References: {%- set text_type = '#tt_References' -%}   {%- endif -%}{# Grey #}
+{%- endmacro -%}
+{# Annotations : Begin -#}
+{% persist "annotations" -%}{# nunjucks adds: >%% begin annotations %%< -#}
+{% set annotations = annotations | filterby("date", "dateafter", lastImportDate) -%}
+{% if annotations.length > 0 %}
+{%- for annotation in annotations %}
+___ 
+%% Annotation_{{annotation.id}}: Begin %%
+{# ###### {{annotation.id}} -#}
+{% if annotation.imageRelativePath %}![[{{annotation.imageRelativePath}}]] {%- endif -%}
+{# use annotation.color to modify header: -#}
+{% if annotation.annotatedText -%}
+{% if annotation.color !== "#ffd400" %}## {{calloutHeader(annotation.color)}}  {% else %}## Citation:  {% endif %}  %% note citation title %%
+{# highlight references in red -#}
+{{ annotation.annotatedText | replace(r/\[(\d+)\]/g, '<span style="color:red;">[$1]</span>') }}
+### Referenzen (im Zitat)                   %% citation references %% 
+{% set regex_reference = r/\[\d+\]/ -%}{% if regex_reference.test(annotation.annotatedText) %}Fehlende Referenz ?{% endif %}
+### Kommentar                               %% comment %% 
+{% if annotation.comment %}{{annotation.comment}}{% else %}...{% endif %}
+### Tags                                    %% tags %% 
+{% if annotation.tags.length > 0 -%}{% for t in annotation.tags -%}#{{t.tag | lower | replace(" ", "_")}} {% endfor %}{% else %} #ToDo_Tags {%- endif %}
+(Only tags - everything else will be deleted.)
+### QA                                      %% QA %% 
+#ToDo_QA 
+___
+%% references %%
+{% set separator = "    ≡≡≡    " -%}
+Quelle: @{{citekey}}{{ separator }}{{firstAttachmentZoteroLink}}
+{%- if annotation.desktopURI %}{{ separator }}[Go to annotation]({{annotation.desktopURI}}){% endif %}
+{%- if annotation.selectURI %}{{ separator }}[Open in Zotero]({{annotation.selectURI}}){% endif %}
+{%- if pdfZoteroLinkModified  %}{{ separator }}[Open in Zotero]({{pdfZoteroLinkModified}}){%- endif %}{% endif %} 
+%% Annotation_{{annotation.id}}: End %%
+{%- endfor %}{% endif %}
+___
+{% endpersist %}{# nunjucks adds: >%% end annotations %%< #}
+{# Annotations : End -#}
