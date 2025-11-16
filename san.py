@@ -90,12 +90,14 @@ s_mark_references          = r"%% references %%"
 rgx_summary_begin          = r"%% Summary_[A-Z0-9]{8}: Begin %%"
 rgx_summary_end            = r"%% Summary_[A-Z0-9]{8}: End %%"
 rgx_annotation_end         = r"%% Annotation_[A-Z0-9]{8}: End %%"
-                           
+                             # %% Annotation_JFG82BQ2: End %%
+
 # regex:
 rgx_marks = re.compile(f"{re.escape(s_mark_summary_begin)}|"
                        f"{re.escape(s_mark_summary_end)}|"
                        f"{re.escape(rgx_summary_begin)}|"
                        f"{re.escape(rgx_summary_end)}|"
+                       # f"{re.escape(rgx_annotation_end)}|"
                        f"{re.escape(s_mark_citation_title)}|"
                        f"{re.escape(s_mark_citation_references)}|"
                        f"{re.escape(s_mark_summary)}|"
@@ -127,8 +129,8 @@ rgx_tag_obsidian  = re.compile(r'#(?!ToDo_)[a-zA-Z0-9]{2}[a-zA-Z0-9_-]{0,33}\b',
 #     return ''.join(re.findall(r'[A-Za-z0-9/_-]', str_in))
 rgx_tags_zotero_to_obsidian = lambda str_in: '#'.join(re.findall(r'[A-Za-z0-9/_-]', str_in))
 
-# whole summary wo zotero hash
-rgx_summary             = re.compile(r"%% begin summary %%(.*?)%% end summary %%", re.DOTALL)
+# # whole summary wo zotero hash
+# rgx_summary             = re.compile(r"%% begin summary %%(.*?)%% end summary %%", re.DOTALL)
 
 # whole summary with zotero hash
 rgx_summary             = re.compile(r"%% summary_[A-Z0-9]{8}: Begin %%.*?%% summary_[A-Z0-9]{8}: End %%", re.DOTALL)
@@ -139,6 +141,9 @@ rgx_annotations_all     = re.compile(r"%% begin annotations %%(.*?)%% end annota
 # single annotation
 rgx_annotation          = re.compile(r"%% Annotation_[A-Z0-9]{8}: Begin %%.*?%% Annotation_[A-Z0-9]{8}: End %%", re.DOTALL)
 
+# annotation end
+# rgx_annotation_end      = re.compile(r"%% Annotation_[A-Z0-9]{8}: End %%", re.DOTALL)
+                                             # %% Annotation_JFG82BQ2: End %%
 # whole citation
 # rgx_citation          = re.compile(        rf'^.*{re.escape(s_mark_citation_title)}.*{re.escape(s_mark_comment)}', re.MULTILINE)
 rgx_citation            = re.compile(rf'^.*{re.escape(s_mark_citation_title)}.*{re.escape(s_mark_citation_references)}', re.MULTILINE)
@@ -161,19 +166,19 @@ rgx_annotation_tags     = re.compile(s_mark_tags + r"(.*?)" + s_mark_QA, re.DOTA
 # annotation references %%
 rgx_references          = re.compile(s_mark_references + r"(.*?)" + rgx_annotation_end, re.DOTALL)
 
-rgx_page_number     = r"\[\(p\. \d{1,4}\)\]"
+rgx_page_number         = r"\[\(p\. \d{1,4}\)\]"
 
 # zotero hash (unique for every annotation)
-rgx_zotero_hash     = re.compile(r'Annotation_([A-Z0-9]{8}\b)|Summary_([A-Z0-9]{8}\b)', re.DOTALL)
+rgx_zotero_hash         = re.compile(r'Annotation_([A-Z0-9]{8}\b)|Summary_([A-Z0-9]{8}\b)', re.DOTALL)
 #                                                                     Summary_R32EDMK3
 
 # markdown - heading
-rgx_heading         = re.compile(r'(^#* [^\n]*\n+)', re.MULTILINE)
+rgx_heading             = re.compile(r'(^#* [^\n]*\n+)', re.MULTILINE)
 
 # valid Windows filename (excluding reserved names)
-rgx_windows_fn      = re.compile(r'^(?!^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?$)(?!.*[\\/:*?"<>|])[^\\/:*?"<>|]{1,255}(?<![ .])$', re.IGNORECASE)
+rgx_windows_fn          = re.compile(r'^(?!^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?$)(?!.*[\\/:*?"<>|])[^\\/:*?"<>|]{1,255}(?<![ .])$', re.IGNORECASE)
 # Forbidden characters in Windows filenames
-rgx_forbidden_chars = r'\\/:*?"<>|'
+rgx_forbidden_chars     = r'\\/:*?"<>|'
 
 
 def get_date_time():
@@ -219,6 +224,8 @@ def get_text_block(text: str, pattern_begin: str, pattern_end: str) -> Optional[
     for i, line in enumerate(lines):
         if (s_out_text == '') and (pattern_begin in line):
             s_out_text  = line
+        elif re.search(pattern_end, line):
+            break
         elif pattern_end in line:
             break
         elif (s_out_text !=  ''):
@@ -757,10 +764,10 @@ def compose_and_write_atomic_note_annotation(note_source, l_summary_tags, idx, s
     s_content  += "###### " + s_authors + '\n'
     s_content  += s_citation + '\n'
     s_content  += s_citation_refs + '\n'
-    # s_content  += "___" + '\n'
+    # s_content+= "___" + '\n'
     s_content  += s_comment + '\n'
-    s_content  += s_QA + '\n'
-    s_content  += s_references
+    s_content  += s_QA # + '\n'
+    s_content  += s_references  + '\n'
     s_content  += "___"
 
     note_annotation.s_content  = get_text_wo_marks(s_content)
@@ -900,7 +907,7 @@ def split_note_source_in_atomic_notes(p_note_source_fn: Path):
     s_annotations_all = re.search(rgx_annotations_all, s_content).group()
 
     #  In s_annotations_all: Find all annotations:
-    #     >rgx_annotation< returns everything from beginning to end of every single annotation,
+    #     >rgx_annotation< returns everything from beginning to the end of every single annotation,
     #     ie: citation, comment, tags, QA (if present).
 
     # l_s_annotation == list of all annotations == >s_annotations_all< splitted
@@ -911,9 +918,8 @@ def split_note_source_in_atomic_notes(p_note_source_fn: Path):
         cnt_notes_written = compose_and_write_atomic_note_annotation(note_source, l_summary_tags, idx, s_annotation,
                                                                      l_p_fn_note, b_do_write, cnt_notes_written)
 
-    print('=' * 25)
-    print(f"{cnt_notes_written}: Notes written.")
-    print('=' * 25)
+    print('='*25, f"\n{cnt_notes_written}: Notes written.")
+    print('='*25)
 
     return cnt_notes_written
 

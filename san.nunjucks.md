@@ -38,8 +38,8 @@ zotero_fields:
 {% if tags.length > 0 %}   tags: {% for t in tags -%}#{{t.tag | lower | replace(" ", "-") }}{% endfor %}{% endif %}
 {% if bibliography %}   bibliography: "{{bibliography | replace("[1]", "") | trim }}"{% endif %}
 {#- Cause of difficulties to open pdf in zotero (if not attachment !?): #}
-   # Cause of difficulties to open pdf in zotero (if not attachment !?) via @zotero_citekey:
-   # 'pdfZoteroLink' modified to '[pdf_Zot_Lnk]': seems to successfully open the pdf in zotero.
+   # 'Cause of difficulties to open pdf in zotero (if not attachment !?) via @zotero_citekey:'
+   # '>pdfZoteroLink< modified to >[pdf_Zot_Lnk]<: seems to successfully open the pdf in zotero.'
 {% if pdfZoteroLink %}{% set pdfZoteroLinkModified = pdfZoteroLink | replace("select", "open-pdf") | replace(r/\[.+\]/, '') | replace('(', '') | replace(')', '') %}{% endif -%}
 {% if pdfZoteroLinkModified %}   pdfZoteroLinkModified: "{{pdfZoteroLinkModified}}"{% endif %}
 {# {% if pdfZoteroLink %}   pdfZoteroLinkModified: "{{pdfZoteroLink | replace("select", "open-pdf") | replace(r/\[.+\]/, '[pdf_Zot_Lnk]')}}"{% endif %}  -#}
@@ -86,8 +86,8 @@ ___
    {#- references == links to citations in zotero|internet #}
 ___
 %% references %%
-{% set separator = "    ≡≡≡    " -%}
-Quelle: @{{citekey}}{{ separator }}{{firstAttachmentZoteroLink}}
+{% set separator = "    ····    " -%}
+Quelle: {{citekey}}{{ separator }}{{url}}{{ separator }}{{DOI}}
 {% endif -%}
 {% endpersist %}  {# nunjucks adds: >%% end summary %%< -#}
 %% Summary_{{key}}: End %%
@@ -113,10 +113,10 @@ ___
 {% if annotation.annotatedText -%}
 {%- set text_type = '#tt_None' -%}
 {% if annotation.color !== "#ffd400" %}## p. {{annotation.pageLabel}}: {{calloutHeader(annotation.color)}}  {% else %}## p. {{annotation.pageLabel}}: Citation:  {% endif %}  %% citation title %%
-{# highlight references in red -#}
-{{ annotation.annotatedText | replace(r/\[(\d+)\]/g, '<span style="color:red;">[$1]</span>') }}
+{# citation text && highlight references in red && add reference: -#} 
+{{ annotation.annotatedText | replace(r/\[(\d+)\]/g, '<span style="color:red;">([$1])</span>') }}    [@{{citekey}}]
 ### Referenzen (im Zitat)                   %% citation references %% 
-{% set regex_reference = r/\[\d+\]/ -%}{% if regex_reference.test(annotation.annotatedText) %}Fehlende Referenz ?{% endif %}
+{% set regex_reference = r/\[\d+\]/ -%}{% if regex_reference.test(annotation.annotatedText) %}Fehlende Referenz <span style="color:red;">([n])</span>?{% endif %}
 ### Kommentar                               %% comment %% 
 {% if annotation.comment %}{{annotation.comment}}{% else %}...{% endif %}
 ### Tags                                    %% tags %% 
@@ -126,11 +126,11 @@ ___
 #ToDo_QA 
 ___
 %% references %%
-{% set separator = "    ≡≡≡    " -%}
-Quelle: @{{citekey}}{{ separator }}{{firstAttachmentZoteroLink}}
+{% set separator = "    ····    " -%}
+citekey: [@{{citekey}}]
 {%- if annotation.desktopURI %}{{ separator }}[Go to annotation]({{annotation.desktopURI}}){% endif %}
 {%- if annotation.selectURI %}{{ separator }}[Open in Zotero]({{annotation.selectURI}}){% endif %}
-{% endif %} 
+{%- endif %} 
 %% Annotation_{{annotation.id}}: End %%
 {%- endfor %}{% endif %}
 ___
