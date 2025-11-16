@@ -73,10 +73,11 @@ def make_default_dict():
     return collections.defaultdict(make_default_dict)
     # >collections.default_dict< does not complain if key is missing.
 
+s_tag_warning              = r"%% Only tags - everything else will be deleted. %%"
 
 s_mark_summary_begin       = r"%% begin summary %%"
 s_mark_summary_end         = r"%% end summary %%"
-s_mark_citation_title      = r"%% note citation title %%"
+s_mark_citation_title      = r"%% citation title %%"
 s_mark_citation_references = r"%% citation references %%"
 s_mark_summary             = r"%% summary %%"
 s_mark_connections         = r"%% connections %%"
@@ -103,6 +104,7 @@ rgx_marks = re.compile(f"{re.escape(s_mark_summary_begin)}|"
                        f"{re.escape(s_mark_tags)}|"
                        f"{re.escape(s_mark_QA)}|"
                        f"{re.escape(s_mark_references)}|"
+                       f"{re.escape(s_tag_warning)}|"
                        f"{re.escape('%% s_content summary %%')}|"
                        f"{re.escape('%% s_content comment %%')}|"
                        f"{re.escape('%% s_content tags %%')}|"
@@ -112,11 +114,11 @@ rgx_marks = re.compile(f"{re.escape(s_mark_summary_begin)}|"
 
 rgx_san_type      = r"annotation|summary"
 
-# obsidian tags: not beginning with '#QA_'
+rgx_page_number   = r"p\. (\d+): "
+
+# obsidian tags: not beginning with '#ToDo'
 # rgx_tag_obsidian  = re.compile(r'(#[A-Za-z0-9/_-]*[A-Za-z_/-][A-Za-z0-9/_-]*)', re.DOTALL)
-rgx_tag_obsidian  = re.compile(r'#(?!QA_)\w+', re.DOTALL)
-rgx_tag_obsidian  = re.compile(r'#(!QA_)\w+', re.DOTALL)
-rgx_tag_obsidian  = re.compile(r'#(?!QA_)[a-zA-Z0-9]{2}[a-zA-Z0-9_-]{0,33}\b', re.DOTALL)
+rgx_tag_obsidian  = re.compile(r'#(?!ToDo_)[a-zA-Z0-9]{2}[a-zA-Z0-9_-]{0,33}\b', re.DOTALL)
 # pattern = r"#(?!QA_)[a-zA-Z0-9]{2}[a-zA-Z0-9_-]{0,33}\b"
 
 
@@ -195,6 +197,15 @@ def get_content_hash(s_content):
     hash_md5.update(s_content.encode('utf-8'))
     s_hash_md5 = hash_md5.hexdigest()
     return hash_algorithm, s_hash_md5
+
+def get_pagenumber_headertext(s_text):
+    match = re.match(r'(p\. \d+: )(.*)', s_text)
+    if match:
+        pagenum, rest = match.groups()
+        return pagenum, rest
+        # return f"{rest} [{pagenum}]"
+    else:
+        return '', rest  # Return unchanged if pattern not found
 
 
 def get_text_block(text: str, pattern_begin: str, pattern_end: str) -> Optional[str]:
@@ -640,7 +651,7 @@ def compose_and_write_atomic_note_summary(note_summary, note_source, idx, l_p_fn
     s_content += "###### " + note_summary.d_frontmatter['zotero_fields']['authors'] # + '\n'
     s_content += get_text_wo_marks(note_summary.s_content) # + '\n'
 
-    s_content += "___" + '\n'
+    s_content +=  "___\n"
     s_content += note_summary.s_references
 
 
@@ -686,8 +697,9 @@ def compose_and_write_atomic_note_annotation(note_source, l_summary_tags, idx, s
     # annotation: s_note_title == md heading with zotero hash of annotation
     # becomes >s_content.title< of new >s_content<
     # >### This_is_Title    %% s_content citation title %%<   =>   >This_is_Title<
-    s_note_title = rgx_citation_title.search(s_annotation).group(1).strip()
-    s_note_title = sanitize_and_check_windows_filename(s_note_title)
+    s_note_title               = rgx_citation_title.search(s_annotation).group(1).strip()
+    s_pagenumber, s_note_title = get_pagenumber_headertext(s_note_title)
+    s_note_title               = sanitize_and_check_windows_filename(s_note_title)
     #
     # annotation: extract zotero_hash of annotation s_content; .group(1) == Hash
     # >%% Annotation_ZKHQG4B7: Begin %%>  => >ZKHQG4B7<
@@ -745,7 +757,7 @@ def compose_and_write_atomic_note_annotation(note_source, l_summary_tags, idx, s
     s_content  += "###### " + s_authors + '\n'
     s_content  += s_citation + '\n'
     s_content  += s_citation_refs + '\n'
-    s_content  += "___" + '\n'
+    # s_content  += "___" + '\n'
     s_content  += s_comment + '\n'
     s_content  += s_QA + '\n'
     s_content  += s_references
@@ -894,8 +906,6 @@ def split_note_source_in_atomic_notes(p_note_source_fn: Path):
     # l_s_annotation == list of all annotations == >s_annotations_all< splitted
     l_s_annotation = re.findall(rgx_annotation, s_annotations_all)
 
-    # ToDo:
-    #  eliminate parameter >fn_note_source<, because already existing as >s_content.fn<
     l_summary_tags = get_l_tag_in(s_summary)        # list: all tags in summary
     for idx, s_annotation in enumerate(l_s_annotation, start=1):
         cnt_notes_written = compose_and_write_atomic_note_annotation(note_source, l_summary_tags, idx, s_annotation,
@@ -1135,8 +1145,8 @@ if __name__ == '__main__':
         print(f"Received s_content: {fn_note_source}")
     else:  # Test
         fn_note_source = "bismarkLegal2012.md"
-        fn_note_source = "bleasePaternalismus2016.2025-11-14._ok_.md"
-        fn_note_source = "bleasePaternalismus2016.md"
+        # fn_note_source = "bleasePaternalismus2016.2025-11-14._ok_.md"
+        # fn_note_source = "bleasePaternalismus2016.md"
         print(f"No >note.md< name provided, take >{fn_note_source}<")
 
     p_fn_note_source: Path = Path(os.path.join(path_in, fn_note_source))

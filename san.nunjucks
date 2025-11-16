@@ -82,25 +82,23 @@ ___
 {% endif -%}
    {#- (Only tags - everything else will be deleted.) -#}
 ### QA                                      %% QA %% 
-#QA_ToDo
-   {#- references == links to citations in zotero|internet -#}
+#ToDo_QA
+   {#- references == links to citations in zotero|internet #}
+___
 %% references %%
 {% set separator = "    ≡≡≡    " -%}
 Quelle: @{{citekey}}{{ separator }}{{firstAttachmentZoteroLink}}
-{%- if annotation.desktopURI %}{{ separator }}[Go to annotation]({{annotation.desktopURI}}){% endif %}
-{%- if pdfZoteroLinkModified  %}{{ separator }}[Open in Zotero]({{pdfZoteroLinkModified}}){%- endif %}
 {% endif -%}
 {% endpersist %}  {# nunjucks adds: >%% end summary %%< -#}
 %% Summary_{{key}}: End %%
 {% macro calloutHeader(color) -%}
-{%- set text_type = '' -%}
-{%- if color == "#ff6666" -%}Definition: {%- set text_type = '#tt_Definition' -%}   {%- endif -%}{# red #}
-{%- if color == "#5fb236" -%}Arguments:  {%- set text_type = '#tt_Arguments' -%}    {%- endif -%}{# green #}
-{%- if color == "#2ea8e5" -%}Summary:    {%- set text_type = '#tt_Summary' -%}      {%- endif -%}{# blue #}
-{%- if color == "#a28ae5" -%}Conclusion: {%- set text_type = '#tt_Conclusion' -%}   {%- endif -%}{# Purple #}
-{%- if color == "#e56eee" -%}Hypothesis: {%- set text_type = '#tt_Hypothesis' -%}   {%- endif -%}{# Magenta #}
-{%- if color == "#f19837" -%}Fact:       {%- set text_type = '#tt_Fact' -%}         {%- endif -%}{# Orange #}
-{%- if color == "#aaaaaa" -%}References: {%- set text_type = '#tt_References' -%}   {%- endif -%}{# Grey #}
+{%- if color == "#ff6666" -%}Definition: {%- set text_type = '#tt_Definition' -%} {%- endif -%}{# red #}
+{%- if color == "#5fb236" -%}Arguments:  {%- set text_type = '#tt_Arguments'  -%} {%- endif -%}{# green #}
+{%- if color == "#2ea8e5" -%}Summary:    {%- set text_type = '#tt_Summary'    -%} {%- endif -%}{# blue #}
+{%- if color == "#a28ae5" -%}Conclusion: {%- set text_type = '#tt_Conclusion' -%} {%- endif -%}{# Purple #}
+{%- if color == "#e56eee" -%}Hypothesis: {%- set text_type = '#tt_Hypothesis' -%} {%- endif -%}{# Magenta #}
+{%- if color == "#f19837" -%}Fact:       {%- set text_type = '#tt_Fact'       -%} {%- endif -%}{# Orange #}
+{%- if color == "#aaaaaa" -%}References: {%- set text_type = '#tt_References' -%} {%- endif -%}{# Grey #}
 {%- endmacro -%}
 {# Annotations : Begin -#}
 {% persist "annotations" -%}{# nunjucks adds: >%% begin annotations %%< -#}
@@ -108,12 +106,13 @@ Quelle: @{{citekey}}{{ separator }}{{firstAttachmentZoteroLink}}
 {% if annotations.length > 0 %}
 {%- for annotation in annotations %}
 ___ 
-%% Annotation_{{annotation.id}}: Begin %%
+%% Annotation_{{annotation.id}}: Begin %%  
 {# ###### {{annotation.id}} -#}
 {% if annotation.imageRelativePath %}![[{{annotation.imageRelativePath}}]] {%- endif -%}
 {# use annotation.color to modify header: -#}
 {% if annotation.annotatedText -%}
-{% if annotation.color !== "#ffd400" %}## {{calloutHeader(annotation.color)}}  {% else %}## Citation:  {% endif %}  %% note citation title %%
+{%- set text_type = '#tt_None' -%}
+{% if annotation.color !== "#ffd400" %}## p. {{annotation.pageLabel}}: {{calloutHeader(annotation.color)}}  {% else %}## p. {{annotation.pageLabel}}: Citation:  {% endif %}  %% citation title %%
 {# highlight references in red -#}
 {{ annotation.annotatedText | replace(r/\[(\d+)\]/g, '<span style="color:red;">[$1]</span>') }}
 ### Referenzen (im Zitat)                   %% citation references %% 
@@ -122,7 +121,7 @@ ___
 {% if annotation.comment %}{{annotation.comment}}{% else %}...{% endif %}
 ### Tags                                    %% tags %% 
 {% if annotation.tags.length > 0 -%}{% for t in annotation.tags -%}#{{t.tag | lower | replace(" ", "_")}} {% endfor %}{% else %} #ToDo_Tags {%- endif %}
-(Only tags - everything else will be deleted.)
+%% Only tags - everything else will be deleted. %%
 ### QA                                      %% QA %% 
 #ToDo_QA 
 ___
@@ -131,7 +130,7 @@ ___
 Quelle: @{{citekey}}{{ separator }}{{firstAttachmentZoteroLink}}
 {%- if annotation.desktopURI %}{{ separator }}[Go to annotation]({{annotation.desktopURI}}){% endif %}
 {%- if annotation.selectURI %}{{ separator }}[Open in Zotero]({{annotation.selectURI}}){% endif %}
-{%- if pdfZoteroLinkModified  %}{{ separator }}[Open in Zotero]({{pdfZoteroLinkModified}}){%- endif %}{% endif %} 
+{% endif %} 
 %% Annotation_{{annotation.id}}: End %%
 {%- endfor %}{% endif %}
 ___
