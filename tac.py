@@ -6,19 +6,22 @@ import frontmatter
 import random
 import string
 
+fn_prefix = '_NEW_'
+
 def load_config(ini_path):
     config = configparser.ConfigParser()
     config.read(ini_path)
 
     p_root = config['DEFAULT']['p_root']
     ext = config['DEFAULT']['ext']
+    p_QA = config['DEFAULT']['p_QA']
 
     rgx_QA_exclude = re.compile(config['DEFAULT']['rgx_QA_exclude'], re.MULTILINE | re.DOTALL)
     rgx_QA_pattern = re.compile(config['DEFAULT']['rgx_QA_pattern'], re.MULTILINE | re.DOTALL)
     rgx_QA_hash = re.compile(config['DEFAULT']['rgx_QA_hash'])
     rgx_QA_DECK = re.compile(config['DEFAULT']['rgx_QA_DECK'], re.MULTILINE | re.DOTALL)
 
-    return p_root, ext, rgx_QA_exclude, rgx_QA_pattern, rgx_QA_hash, rgx_QA_DECK
+    return p_root, ext, p_QA, rgx_QA_exclude, rgx_QA_pattern, rgx_QA_hash, rgx_QA_DECK
 
 def generate_random_hash(length=8):
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
@@ -28,13 +31,20 @@ def find_files_with_extension(root, extension):
     for current_dir, _, filenames in os.walk(root):
         for fname in filenames:
             if fname.endswith(extension):
-                matches.append(os.path.join(current_dir, fname))
+                matches.append(os.path.normpath(os.path.join(current_dir, fname)))
     return matches
 
 def get_l_s_QA_deck(content, rgx_QA_DECK, fixed_QA_prefix):
     deck_matches = rgx_QA_DECK.findall(content)
     l_s_QA_deck = [m[len(fixed_QA_prefix):] if m.startswith(fixed_QA_prefix) else m for m in deck_matches]
     return l_s_QA_deck
+
+def files_are_identical(path1, content2):
+    if not os.path.isfile(path1):
+        return False
+    with open(path1, 'r', encoding='utf-8') as f1:
+        content1 = f1.read()
+    return content1 == content2
 
 def process_files(file_paths, rgx_QA_exclude, rgx_QA_pattern, rgx_QA_hash, rgx_QA_DECK):
     result = []
@@ -81,7 +91,6 @@ def process_files(file_paths, rgx_QA_exclude, rgx_QA_pattern, rgx_QA_hash, rgx_Q
         modified_content = content
         multiple_matches = len(target_matches) > 1
 
-        # Build list of all existing hashes in content
         l_QA_hash = rgx_QA_hash.findall(content)
 
         for idx, match in enumerate(target_matches, start=1):
@@ -90,14 +99,11 @@ def process_files(file_paths, rgx_QA_exclude, rgx_QA_pattern, rgx_QA_hash, rgx_Q
 
                 if multiple_matches:
                     candidate_idx = idx
-
-                    # Test uniqueness without parentheses first
                     insert_str_no_paren = f'{zotero_hash}_{candidate_idx}'
                     while insert_str_no_paren in l_QA_hash:
                         candidate_idx += 1
                         insert_str_no_paren = f'{zotero_hash}_{candidate_idx}'
 
-                    # After uniqueness found without parentheses, add parentheses
                     insert_str = f'({insert_str_no_paren})\n'
                 else:
                     insert_str = f'({zotero_hash})\n'
@@ -110,18 +116,36 @@ def process_files(file_paths, rgx_QA_exclude, rgx_QA_pattern, rgx_QA_hash, rgx_Q
                 )
                 target_matches[idx-1] = match + insert_str
 
-        # Write modified content with new filename in original file's directory
         orig_dir = os.path.dirname(file_path)
-        new_filename = '_NEW_' + os.path.basename(file_path)
-        new_file_path = os.path.join(orig_dir, new_filename)
-        with open(new_file_path, 'w', encoding='utf-8') as f_new:
-            fm_text = frontmatter.dumps(post)
-            split_index = fm_text.find('---', 3)
-            if split_index == -1:
-                f_new.write(fm_text)
+        base_name = os.path.basename(file_path)
+
+        if base_name.startswith(fn_prefix):
+            new_filename = base_name
+        else:
+            new_filename = fn_prefix + base_name
+
+        new_file_path = os.path.normpath(os.path.join(orig_dir, new_filename))
+
+        fm_text = frontmatter.dumps(post)
+        split_index = fm_text.find('---', 3)
+        if split_index == -1:
+            frontmatter_header = fm_text
+        else:
+            frontmatter_header = fm_text[:split_index+3]
+
+        full_new_content = frontmatter_header + '\n' + modified_content
+
+        if os.path.exists(new_file_path):
+            if files_are_identical(new_file_path, full_new_content):
+                print(f"File identical, skipping overwrite: {new_file_path}")
             else:
-                frontmatter_header = fm_text[:split_index+3]
-                f_new.write(frontmatter_header + '\n' + modified_content)
+                with open(new_file_path, 'w', encoding='utf-8') as f_new:
+                    f_new.write(full_new_content)
+                print(f"File updated: {new_file_path}")
+        else:
+            with open(new_file_path, 'w', encoding='utf-8') as f_new:
+                f_new.write(full_new_content)
+            print(f"File written: {new_file_path}")
 
         qa_match = rgx_QA_pattern.search(content)
 
@@ -135,15 +159,61 @@ def process_files(file_paths, rgx_QA_exclude, rgx_QA_pattern, rgx_QA_hash, rgx_Q
         result.append(entry)
     return result
 
+def get_lo_qa_card(p_QA):
+    prefix = 'TARGET DECK: '
+    lo_p_fn_qa = []
+    lo_qa_card = []
+
+    for root, _, files in os.walk(p_QA):
+        for fname in files:
+            if fname.endswith('.md'):
+                path_normalized = os.path.normpath(os.path.join(root, fname))
+                lo_p_fn_qa.append(path_normalized)
+
+    chunk_pattern = re.compile(
+        r'((?:[^\n][\n]?)+) #flashcard ?\n*((?:\n(?:^.{1,3}$|^.{4}(?<!<!--).*))+)<' ,
+        re.MULTILINE | re.VERBOSE
+    )
+
+    for p_fn_qa in lo_p_fn_qa:
+        with open(p_fn_qa, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+
+        if not lines:
+            continue
+
+        first_line = lines[0].strip()
+        if not first_line.startswith(prefix):
+            continue
+
+        s_deck = first_line[len(prefix):]
+
+        content = ''.join(lines)
+
+        lo_s_qa = [m.group(0) for m in chunk_pattern.finditer(content)]
+
+        lo_qa_card.append({
+            'deck': s_deck,
+            'file_path': p_fn_qa,
+            'chunks': lo_s_qa,
+        })
+
+    return lo_qa_card
+
 def main():
     ini_path = 'tac.ini'
-    p_root, ext, rgx_QA_exclude, rgx_QA_pattern, rgx_QA_hash, rgx_QA_DECK = load_config(ini_path)
+    p_root, ext, p_QA, rgx_QA_exclude, rgx_QA_pattern, rgx_QA_hash, rgx_QA_DECK = load_config(ini_path)
 
     all_files = find_files_with_extension(p_root, ext)
     dts = process_files(all_files, rgx_QA_exclude, rgx_QA_pattern, rgx_QA_hash, rgx_QA_DECK)
 
+    lo_qa_card = get_lo_qa_card(p_QA)
+
     for entry in dts:
         print(entry)
+
+    for qa_card in lo_qa_card:
+        print(qa_card)
 
 if __name__ == "__main__":
     main()
