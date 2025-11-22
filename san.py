@@ -32,7 +32,7 @@ from tkinter import messagebox, Tk
 
 path_data = Path(r"C:\Users\rh\Meine Ablage")
 
-path_in   = Path(r"C:\Users\rh\Meine Ablage\obsidian_rh_GoogleDrive\01_Notes_Literature_Annotations")
+path_in   = Path(r"C:\Users\rh\Meine Ablage\obsidian_rh_GoogleDrive\02_Notes_zotero_Annotations")
 path_out  = path_in
 
 root = Tk()

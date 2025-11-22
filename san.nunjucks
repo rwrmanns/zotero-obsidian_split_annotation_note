@@ -82,6 +82,8 @@ ___
 {% endif -%}
    {#- (Only tags - everything else will be deleted.) -#}
 ### QA                                      %% QA %% 
+Q:
+A:
 #ToDo_QA
    {#- references == links to citations in zotero|internet #}
 ___
@@ -123,6 +125,8 @@ ___
 {% if annotation.tags.length > 0 -%}{% for t in annotation.tags -%}#{{t.tag | lower | replace(" ", "_")}} {% endfor %}{% else %} #ToDo_Tags {%- endif %}
 %% Only tags - everything else will be deleted. %%
 ### QA                                      %% QA %% 
+Q:
+A:
 #ToDo_QA 
 ___
 %% references %%
