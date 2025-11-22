@@ -81,7 +81,7 @@ def process_files(file_paths, rgx_QA_exclude, rgx_QA_pattern, rgx_QA_hash, rgx_Q
         modified_content = content
         multiple_matches = len(target_matches) > 1
 
-        # Build a list of all existing hashes in content
+        # Build list of all existing hashes in content
         l_QA_hash = rgx_QA_hash.findall(content)
 
         for idx, match in enumerate(target_matches, start=1):
@@ -110,8 +110,11 @@ def process_files(file_paths, rgx_QA_exclude, rgx_QA_pattern, rgx_QA_hash, rgx_Q
                 )
                 target_matches[idx-1] = match + insert_str
 
+        # Write modified content with new filename in original file's directory
+        orig_dir = os.path.dirname(file_path)
         new_filename = '_NEW_' + os.path.basename(file_path)
-        with open(new_filename, 'w', encoding='utf-8') as f_new:
+        new_file_path = os.path.join(orig_dir, new_filename)
+        with open(new_file_path, 'w', encoding='utf-8') as f_new:
             fm_text = frontmatter.dumps(post)
             split_index = fm_text.find('---', 3)
             if split_index == -1:
