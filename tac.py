@@ -12,6 +12,7 @@ def load_config(ini_path):
 
     p_root = config['DEFAULT']['p_root']
     ext = config['DEFAULT']['ext']
+
     rgx_QA_exclude = re.compile(config['DEFAULT']['rgx_QA_exclude'], re.MULTILINE | re.DOTALL)
     rgx_QA_pattern = re.compile(config['DEFAULT']['rgx_QA_pattern'], re.MULTILINE | re.DOTALL)
     rgx_QA_hash = re.compile(config['DEFAULT']['rgx_QA_hash'])
@@ -30,6 +31,11 @@ def find_files_with_extension(root, extension):
                 matches.append(os.path.join(current_dir, fname))
     return matches
 
+def get_l_s_QA_deck(content, rgx_QA_DECK, fixed_QA_prefix):
+    deck_matches = rgx_QA_DECK.findall(content)
+    l_s_QA_deck = [m[len(fixed_QA_prefix):] if m.startswith(fixed_QA_prefix) else m for m in deck_matches]
+    return l_s_QA_deck
+
 def process_files(file_paths, rgx_QA_exclude, rgx_QA_pattern, rgx_QA_hash, rgx_QA_DECK):
     result = []
     for file_path in file_paths:
@@ -41,27 +47,17 @@ def process_files(file_paths, rgx_QA_exclude, rgx_QA_pattern, rgx_QA_hash, rgx_Q
             print(f"Warning: Could not load frontmatter from {file_path}: {e}")
             continue
 
-        # Skip files matching exclude regex
         if rgx_QA_exclude.search(content):
             continue
 
-        # Only include files matching pattern regex
         if not rgx_QA_pattern.search(content):
             continue
 
-        # Search for deck entries
-        deck_matches = rgx_QA_DECK.findall(content)
-        # Example: fixed prefix extraction from pattern (adjust as needed)
+        fixed_QA_prefix = "#QA_DECK_"
+        l_s_QA_deck = get_l_s_QA_deck(content, rgx_QA_DECK, fixed_QA_prefix)
 
-        if deck_matches:
-            fixed_prefix = "#QA_DECK"
-            l_s_deck = [m[len(fixed_prefix):] if m.startswith(fixed_prefix) else m for m in deck_matches]
-        else:
-            l_s_deck = ''
-
-        # Check for existing zotero_hash or generate new one
-        zotero_hash = None
         metadata = post.metadata
+        zotero_hash = None
         if 'san' in metadata and isinstance(metadata['san'], dict):
             candidate = metadata['san'].get('zotero_hash')
             if candidate and rgx_QA_hash.fullmatch(candidate):
@@ -76,7 +72,6 @@ def process_files(file_paths, rgx_QA_exclude, rgx_QA_pattern, rgx_QA_hash, rgx_Q
             with open(file_path, 'w', encoding='utf-8') as f:
                 f.write(frontmatter.dumps(post))
 
-        # Extract all target matches
         raw_matches = rgx_QA_pattern.findall(content)
         if raw_matches and isinstance(raw_matches[0], tuple):
             target_matches = [''.join(m) for m in raw_matches]
@@ -99,10 +94,8 @@ def process_files(file_paths, rgx_QA_exclude, rgx_QA_pattern, rgx_QA_hash, rgx_Q
                     modified_content,
                     count=1
                 )
-                # Also append insert_str to target_matches entry
                 target_matches[idx-1] = match + insert_str
 
-        # Write modified content to new file prefixed with _NEW_
         new_filename = '_NEW_' + os.path.basename(file_path)
         with open(new_filename, 'w', encoding='utf-8') as f_new:
             fm_text = frontmatter.dumps(post)
@@ -120,7 +113,7 @@ def process_files(file_paths, rgx_QA_exclude, rgx_QA_pattern, rgx_QA_hash, rgx_Q
             'target': target_matches if target_matches else None,
             'hash': zotero_hash,
             'qa': qa_match.group(0) if qa_match else None,
-            'l_s_deck': l_s_deck,
+            'l_s_QA_deck': l_s_QA_deck,
         }
         result.append(entry)
     return result
