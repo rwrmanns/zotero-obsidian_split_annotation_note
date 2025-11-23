@@ -24,8 +24,8 @@ def load_config(ini_path):
     return p_root, ext, p_QA, rgx_QA_exclude, rgx_QA_pattern, rgx_QA_hash, rgx_QA_DECK
 
 
-def generate_random_hash(length=8):
-    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
+def generate_random_hash(length=32):
+    return ''.join(random.choices('0123456789abcdef', k=length))
 
 
 def find_files_with_extension(root, extension):
@@ -172,7 +172,7 @@ def get_lo_qa_entry(file_paths, rgx_QA_exclude, rgx_QA_pattern, rgx_QA_hash, rgx
     return lo_qa_entry
 
 
-def get_lo_qa_card(p_QA):
+def get_lo_qa_card(rgx_QA_hash, p_QA):
     prefix = 'TARGET DECK: '
     lo_p_fn_qa = []
     lo_qa_card = []
@@ -207,9 +207,12 @@ def get_lo_qa_card(p_QA):
 
         for s_QA in lo_s_qa:
             if '#flashcard' in s_QA:
+                match = re.search(rgx_QA_hash, s_QA)
+                QA_hash = match.group(0) if match else ''
                 lo_qa_card.append({
                     'QA_deck': s_deck,
                     's_QA': s_QA,
+                    'QA_hash': QA_hash,
                     'file_path': p_fn_qa,
                 })
 
@@ -223,7 +226,7 @@ def main():
     all_files = find_files_with_extension(p_root, ext)
     lo_qa_entry = get_lo_qa_entry(all_files, rgx_QA_exclude, rgx_QA_pattern, rgx_QA_hash, rgx_QA_DECK)
 
-    lo_qa_card = get_lo_qa_card(p_QA)
+    lo_qa_card = get_lo_qa_card(rgx_QA_hash, p_QA)
 
     for entry in lo_qa_entry:
         print(entry)
