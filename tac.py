@@ -92,12 +92,14 @@ def get_lo_qa_entry(file_paths, rgx_QA_exclude, rgx_QA_pattern, rgx_QA_hash, rgx
         multiple_matches = len(l_s_qa) > 1
 
         lo_all_QA_hashes = rgx_QA_hash.findall(content)
-        lo_qa_hash = []
+        lo_qa_hash = [QA_hash] * len(l_s_qa)  # initialize list with current QA_hash
 
         for idx, match in enumerate(l_s_qa, start=1):
             QA_hash_idx = ''
             if not rgx_QA_hash.search(match):
                 escaped_match = re.escape(match)
+                if not escaped_match.endswith('\n'):
+                    escaped_match += '\n'
 
                 if multiple_matches:
                     candidate_idx = idx
@@ -116,12 +118,11 @@ def get_lo_qa_entry(file_paths, rgx_QA_exclude, rgx_QA_pattern, rgx_QA_hash, rgx
                     modified_content,
                     count=1
                 )
-                l_s_qa[idx-1]     = l_s_qa[idx-1] + '\n' + insert_str
-                # QA_hash = QA_hash_idx
-                if QA_hash_idx:
-                    lo_qa_hash.append(QA_hash_idx)
-                else:
-                    lo_qa_hash.append(QA_hash)
+                l_s_qa[idx-1] = l_s_qa[idx-1] + '\n' + insert_str
+                # Removed lines:
+                # if QA_hash_idx:
+                #     QA_hash = QA_hash_idx
+                lo_qa_hash[idx-1] = QA_hash
 
         orig_dir = os.path.dirname(file_path)
         base_name = os.path.basename(file_path)
@@ -154,14 +155,14 @@ def get_lo_qa_entry(file_paths, rgx_QA_exclude, rgx_QA_pattern, rgx_QA_hash, rgx
                 f_new.write(full_new_content)
             print(f"File written: {new_file_path}")
 
-        # for s_QA in l_s_qa:
-        for idx, s_QA in enumerate(l_s_qa):
-            qa_hash = lo_qa_hash[idx]
+        for s_QA in l_s_qa:
             for QA_deck in lo_QA_deck:
+                match = re.search(rgx_QA_hash, s_QA)
+                QA_hash = match.group(0) if match else ''
                 qa_entry = {
                     'path': file_path,
                     's_QA': s_QA,
-                    'QA_hash': qa_hash,
+                    'QA_hash': QA_hash,
                     'QA_deck': QA_deck,
                 }
                 lo_qa_entry.append(qa_entry)
