@@ -3,9 +3,11 @@ import re
 import io
 import configparser
 import difflib
+from pprint import pprint
+from re import split
+
 import frontmatter
 import hashlib
-import pprint
 import random
 
 flashcard_sys = 'anki'
@@ -15,18 +17,30 @@ fn_prefix = '_NEW_'
 
 rgx_html_comment = re.compile(r'<!--.*?-->', re.DOTALL)
 
-rgx_QA_exclude = ''
-rgx_QA_pattern = ''
-rgx_QA_hash    = ''
-rgx_QA_DECK    = ''
-rgx_d8_hash    = ''
+rgx_QA_exclude     = ''
+rgx_QA_pattern     = ''
+rgx_QA_DECK        = ''
+rgx_d8_hash        = ''
+rgx_QA_stopword    = ""
+rgx_QA_block_begin = ""
+rgx_QA_SR_hash     = ""          # hash of deck + s_QA
+rgx_html_comment   = ''
+
+
+
+
+# Regex that matches HTML comments (including multiline)
+
 
 def load_config(ini_path):
     global rgx_QA_exclude
     global rgx_QA_pattern
-    global rgx_QA_hash
     global rgx_QA_DECK
     global rgx_d8_hash
+    global rgx_QA_stopword
+    global rgx_QA_block_begin
+    global rgx_QA_SR_hash
+    global rgx_html_comment
 
     config = configparser.ConfigParser()
     config.read(ini_path)
@@ -36,11 +50,32 @@ def load_config(ini_path):
     p_QA   = config['DEFAULT']['p_QA']
     QA_tag = config['DEFAULT']['QA_tag']
 
-    rgx_QA_exclude = re.compile(config['DEFAULT']['rgx_QA_exclude'], re.MULTILINE | re.DOTALL)
-    rgx_QA_pattern = re.compile(config['DEFAULT']['rgx_QA_pattern'], re.MULTILINE | re.DOTALL)
-    rgx_QA_hash = re.compile(config['DEFAULT']['rgx_QA_hash'])
-    rgx_QA_DECK = re.compile(config['DEFAULT']['rgx_QA_DECK'], re.MULTILINE | re.DOTALL)
-    rgx_d8_hash = re.compile(config['DEFAULT']['rgx_d8_hash'], re.MULTILINE | re.DOTALL)
+    rgx_QA_exclude   = re.compile(config['DEFAULT']['rgx_QA_exclude'], re.MULTILINE | re.DOTALL)
+    # rgx_QA_pattern   = re.compile(config['DEFAULT']['rgx_QA_pattern'], re.MULTILINE | re.DOTALL)
+    # rgx_QA_SR_hash   = re.compile(config['DEFAULT']['rgx_QA_SR_hash'])
+    rgx_QA_DECK      = re.compile(config['DEFAULT']['rgx_QA_DECK'], re.MULTILINE | re.DOTALL)
+    rgx_d8_hash      = re.compile(config['DEFAULT']['rgx_d8_hash'], re.MULTILINE | re.DOTALL)
+    rgx_html_comment = re.compile(r'<!--.*?-->', re.DOTALL)
+
+    lo_stopword_raw = ['#flashcards', '#QA_DECK_']
+    lo_QA_stopword  = [re.escape(sw) for sw in lo_stopword_raw]
+    s_stopword_tail = r"[A-Za-z0-9_/\-\\]{0,25}"
+
+    # STOPWORD REGEX
+    rgx_QA_stopword            = r"(?:%s)%s" % ("|".join(lo_QA_stopword), s_stopword_tail)
+    rgx_QA_block_begin_pattern = (r"(" + rgx_QA_stopword + r"(?:\s+" + rgx_QA_stopword + r")*)")
+    rgx_QA_block_begin         = re.compile(r"^" + rgx_QA_block_begin_pattern + r"$", re.MULTILINE)
+    rgx_html_comment           = re.compile(r"<!--.*?-->", re.DOTALL)
+    rgx_QA_SR_hash             = re.compile(r"([A-Z0-9]{8})(?:_(\d{3}))?(?:_(\d{8}))?")
+
+
+    # rgx_QA_pattern = re.compile(s_rgx_QA_pattern, re.VERBOSE | re.MULTILINE)
+    rgx_QA_pattern = rgx_QA_block_begin
+    # Default value for s_QA_DECK
+    s_QA_DECK = '#QA_Deck_'
+
+    # Define rgx_QA_deck which matches the fixed part followed by up to 25 characters without spaces
+    rgx_QA_deck = re.escape(s_QA_DECK) + r'[^\s]{1,25}'
 
     return p_root, ext, p_QA, QA_tag
 
@@ -48,6 +83,114 @@ def load_config(ini_path):
 def generate_random_hash(length=8):
     return ''.join(random.choices('ABCDEFGHIJKLMNOPQRSTUVWXYZ123456789', k=length))
 
+def get_cleaned_line(line):
+    # clean line from whitespaces; purge horizontal lines.
+    if not line.strip():
+        return False
+    if re.search(r"-{3,}", line):
+        return False
+    if re.search(r"_{3,}", line):
+        return False
+    return True
+
+def get_lo_QA_deck_block(text):
+    # QA_deck_block == block of text beginning with tag indicating deck of one or more following QAs.
+
+    lo_QA_deck_block = []
+    matches = list(rgx_QA_block_begin.finditer(text))
+    if not matches:
+        return []
+
+    #
+    for i, m in enumerate(matches):
+        start = m.start()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+
+        block_text = text[start:end]
+        lines = block_text.splitlines()
+
+        deck_line = lines[0]
+        qa_lines = lines[1:]
+
+        deck_clean = "\n".join(ln for ln in [deck_line] if get_cleaned_line(ln))
+        qa_clean   = "\n".join(ln for ln in qa_lines if get_cleaned_line(ln))
+
+        lo_QA_deck = re.findall(rgx_QA_stopword, deck_clean)
+
+        lo_QA_deck_block.append({
+            "DECK": deck_clean,
+            "QA": qa_clean,
+            "lo_QA_deck": lo_QA_deck
+        })
+
+    return lo_QA_deck_block
+
+
+def get_lo_d_QA(QA_deck_block):
+    # >QA_deck_block< == line containing one or more >deck< entries followed by QA text without >deck< entries.
+    # Transform textblock into cartesian product (lo of dict): item == every deck with every QA_text.
+
+    QA_text, lo_QA_deck = QA_deck_block["QA"], QA_deck_block["lo_QA_deck"]
+    positions = [m.start() for m in re.finditer(r"^Q: ", QA_text, re.MULTILINE)]
+    if not positions:
+        return []
+
+    positions.append(len(QA_text))
+
+    lo_s_QA = []
+    for i in range(len(positions) - 1):
+        start = positions[i]
+        end = positions[i + 1]
+        chunk = QA_text[start:end].strip()
+        if chunk:
+            lo_s_QA.append(chunk)
+
+    lo_d_QA = []
+    for deck in lo_QA_deck:
+        for s_QA in lo_s_QA:
+            lo_d_QA.append({
+                "QA_deck": deck,
+                "s_QA": s_QA
+            })
+    return lo_d_QA
+
+
+def get_d8_hash(s_in):
+    # calcs SHA256 hash of s and returns last 8 characters as string
+    h = hashlib.sha256(s_in.encode("utf-8")).hexdigest()
+    return h[-8:]
+
+
+def get_lo_d_QA_normalized(lo_do_QA):
+    # in s_QA extract and purge html comments and hashes
+    lo_do_QA_normalized = []
+
+    for do_QA in lo_do_QA:
+        s_QA = do_QA["s_QA"]
+
+        # Extract HTML comment
+        m_comment    = rgx_html_comment.search(s_QA)
+        QA_TimeStamp = m_comment.group(0) if m_comment else None
+
+        # Purge HTML comments and old hash-like strings
+        s_clean = rgx_html_comment.sub("", s_QA)
+        s_clean = rgx_QA_SR_hash.sub("", s_clean)
+        s_QA    = s_clean.strip()
+
+        # Compute new deterministic hash from original s_QA
+        s_deck_and_QA = do_QA["QA_deck"] + ' - ' + s_QA
+        QA_hash = get_d8_hash(s_deck_and_QA)
+
+        # Build normalized dict
+        d_new = {
+            "QA_deck": do_QA["QA_deck"],
+            "s_QA": s_clean,
+            "QA_TimeStamp": QA_TimeStamp,
+            "QA_hash": QA_hash
+        }
+        lo_do_QA_normalized.append(d_new)
+
+    return lo_do_QA_normalized
 
 def calc_d8_hash(s_qa_block) -> str:
     # calc sha256-hash of >s_qa_block< & return last 8 chars of hash.
@@ -74,7 +217,7 @@ def get_d8_hash_vs_0(s_qa_block):
     # 's_qa_block' == textblock one containing Q: and A: s_text.
     # 'search in 's_qa_block' string like: '(Y2BBMT5N_000_51275410)'
 
-    QA_hash_long = rgx_QA_hash.search(s_qa_block)
+    QA_hash_long = rgx_QA_SR_hash.search(s_qa_block)
     if QA_hash_long:
         # group_all    = QA_hash_long.group(0)
         # group_1      = QA_hash_long.group(1)
@@ -124,7 +267,7 @@ def find_files_with_extension(root, extension):
 
 def get_l_s_QA_deck(content, rgx_QA_DECK, fixed_QA_prefix):
     deck_matches = rgx_QA_DECK.findall(content)
-    lo_QA_deck = [m[len(fixed_QA_prefix):] if m.startswith(fixed_QA_prefix) else m for m in deck_matches]
+    lo_QA_deck = [m[len(fixed_QA_prefix) + 1:] if m.startswith(fixed_QA_prefix) else m for m in deck_matches]
     if len(lo_QA_deck) == 0:
         lo_QA_deck = ['Default']
     return lo_QA_deck
@@ -137,11 +280,13 @@ def files_are_identical(new_file_path, content2):
         content1 = f1.read()
     return content1 == content2
 
-def get_QA_hash_from_frontmatter(file_path, metadata: dict[str, object], post, rgx_QA_hash) -> str:
+def get_QA_zotero_hash_from_frontmatter(file_path, metadata: dict[str, object], post, rgx_QA_SR_hash) -> str:
+    # QA_zotero_hash == frontmatter['san']['zotero_hash'] ... to identify note or zotero annotation.
+    # Serves to create a unique ID of QA. If not present then will be generated.
     QA_hash = None
     if 'san' in metadata and isinstance(metadata['san'], dict):
         candidate = metadata['san'].get('zotero_hash')
-        if candidate and rgx_QA_hash.search(candidate):
+        if candidate and rgx_QA_SR_hash.search(candidate):
             QA_hash = candidate
 
     if not QA_hash:
@@ -155,39 +300,24 @@ def get_QA_hash_from_frontmatter(file_path, metadata: dict[str, object], post, r
             f.write(frontmatter.dumps(post))
     return QA_hash
 
-def get_lo_all_QA_hashes(content: str, rgx_QA_hash) -> list:
+def get_lo_all_QA_hashes(content: str, rgx_QA_SR_hash) -> list:
     if flashcard_sys == 'anki':
-        lo_all_QA_hashes = rgx_QA_hash.findall(content)
+        lo_all_QA_hashes = rgx_QA_SR_hash.findall(content)
     elif flashcard_sys == 'flashcards':
         # In
         lo_html_comment  = rgx_html_comment.findall(content)
         lo_all_QA_hashes = []
         for html_comment in lo_html_comment:
-            if rgx_QA_hash.findall(html_comment):
-                lo_all_QA_hashes += rgx_QA_hash.findall(html_comment)
+            if rgx_QA_SR_hash.findall(html_comment):
+                lo_all_QA_hashes += rgx_QA_SR_hash.findall(html_comment)
     else:
         exit('get_lo_all_QA_hashes(): flashcard_sys?')
     return lo_all_QA_hashes
 
 
-def get_tu_Q_A_part(qa_string):
-    match = rgx_QA_pattern.search(qa_string)
-
-    if match:
-        # Group 1 is the first part (Q:...)
-        Q_part = match.group(1).strip()
-        # Group 2 is the second part (A:...)
-        A_part = match.group(2).strip()
-
-        print(f"First part (Question):\n{question_part}\n")
-        print(f"Second part (Answer):\n{answer_part}\n")
-        return (Q_part, A_part)
-    else:
-        print("No Q&A pattern match found.")
-        return ('', '')
-
 
 def get_lo_s_QA(content: str, rgx_QA_pattern) -> list[str]:
+    # from *.md notes get QA. Transform them into a flashcard file (obsidian Spaced Repetition / anki ?)
     if flashcard_sys == 'anki':
         l_qa_match = rgx_QA_pattern.findall(content)
         if l_qa_match and isinstance(l_qa_match[0], tuple):
@@ -196,6 +326,24 @@ def get_lo_s_QA(content: str, rgx_QA_pattern) -> list[str]:
             lo_s_qa = l_qa_match
         return lo_s_qa
     elif flashcard_sys == 'flashcards':
+        # print(f"rgx_lo_QA_deck: {match.group('rgx_lo_QA_deck')}")
+        # print(f"QA_Question: {match.group('QA_Question')}")
+        # print(f"QA_type: {match.group('QA_type')}")
+        # print(f"QA_Answer: {match.group('QA_Answer')}")
+
+        iter_QA_match  = rgx_QA_pattern.finditer(content)
+        for QA_match in iter_QA_match:
+            if QA_match:
+                s_lo_QA_deck= QA_match.group('rgx_lo_QA_deck')
+                QA_Question = QA_match.group('QA_Question')
+                QA_type     = QA_match.group('QA_type')
+                QA_Answer   = QA_match.group('QA_Answer')
+
+                lo_QA_deck  = s_lo_QA_deck.split(' ')
+                pass
+            else:
+                return None
+
         l_qa_match = rgx_QA_pattern.findall(content)
         # get_tu_Q_A_part(qa_string)
         lo_s_qa = []
@@ -216,7 +364,7 @@ def get_normalized_s_qa_block(s_qa: str) -> str:
     s_qa_block = re.escape(s_qa_block)
     return s_qa_block
 
-def get_lo_qa_entry(file_paths):
+def get_lo_qa_entry_vs_01(file_paths):
     # return list of all QA-entries in note: qa_entry.QA, possibly qa_entry.QA_hash, qa_entry.QA_deck
     lo_qa_entry = []
     # Get frontmatter of note
@@ -235,7 +383,10 @@ def get_lo_qa_entry(file_paths):
             continue
 
         # Pattern of QA
-        if not rgx_QA_pattern.search(content):
+        # if not rgx_QA_pattern.search(content):
+        #     continue
+        QA_matches =  rgx_QA_pattern.finditer(content)
+        if not QA_matches:
             continue
 
         # Anki: Deck
@@ -244,7 +395,7 @@ def get_lo_qa_entry(file_paths):
 
         # Get from frontmatter: QA_hash
         metadata = post.metadata
-        QA_hash =   get_QA_hash_from_frontmatter(file_path, metadata, post, rgx_QA_hash)
+        QA_hash =  get_QA_zotero_hash_from_frontmatter(file_path, metadata, post, rgx_QA_SR_hash)
 
         # Get QA-text_blocks in note - maybe multiple QA's, hence list.
         lo_s_qa = get_lo_s_QA(content, rgx_QA_pattern)
@@ -254,7 +405,7 @@ def get_lo_qa_entry(file_paths):
         multiple_matches = len(lo_s_qa) > 1
 
         # QA-text_blocks possibly have already QA_hash -> make list of them
-        lo_all_QA_hashes = get_lo_all_QA_hashes(content, rgx_QA_hash)
+        lo_all_QA_hashes = get_lo_all_QA_hashes(content, rgx_QA_SR_hash)
 
         # ???
         # lo_qa_hash = [''] * len(lo_s_qa)
@@ -333,7 +484,7 @@ def get_lo_qa_entry(file_paths):
 
         for s_QA in lo_s_qa:
             for QA_deck in lo_QA_deck:
-                s_qa = re.search(rgx_QA_hash, s_QA[1])
+                s_qa = re.search(rgx_QA_SR_hash, s_QA[1])
                 QA_hash = s_qa.group(0) if s_qa else ''
                 qa_entry = {
                     'QA_deck': QA_deck,
@@ -345,307 +496,163 @@ def get_lo_qa_entry(file_paths):
                 lo_qa_entry.append(qa_entry)
     return lo_qa_entry
 
-# def parse_flashcards(s_text):
-#     lo_qa_card = []
-#     # Split s_text on marker lines, keeping them as separate entries
-#     # r"^#marker\s*(.*)$((?:\n|\r\n?)*)",
-#     #     re.MULTILINE
-#     blocks = re.split(r'(^#flashcards.*$)', s_text, flags=re.MULTILINE)
-#     blocks = re.split(r'(^#flashcards\s*(.*)$((?:\n|\r\n?)*))', s_text, flags=re.MULTILINE)
-#
-#     # blocks alternate as ['', marker line, content, marker line, content, ...]
-#     if blocks[0].strip() == '':
-#         blocks = blocks[1:]
-#
-#     # Process pairs of (marker line, content block)
-#     for i in range(0, len(blocks), 2):
-#         deck_line = blocks[i].strip()
-#         if (i+1) >= len(blocks):
-#             continue
-#         content_block = blocks[i+1].split('\n\n')[0].strip()  # Trim at first empty line
-#
-#         # Split at one to three question marks
-#         split_q_a = re.split(r'\?{1,3}', content_block, maxsplit=1)
-#         if len(split_q_a) != 2:
-#             continue  # Skip if can't split properly
-#
-#         q_part, a_part = map(str.strip, split_q_a)
-#
-#         # Prepend 'Q: ' or 'A: ' if missing (case insensitive)
-#         if not re.match(r'^Q:\s*', q_part, re.IGNORECASE):
-#             q_part = 'Q: ' + q_part
-#         if not re.match(r'^A:\s*', a_part, re.IGNORECASE):
-#             a_part = 'A: ' + a_part
-#
-#         card = {'Decks': deck_line, 'Q': q_part, 'A': a_part}
-#         lo_qa_card.append(card)
-#
-#     return lo_qa_card
 
-# def parse_spaced_repetition_file(path):
-#     with open(path, 'r', encoding='utf-8') as f:
-#         s_text = f.read()
-#
-#     cards = []
-#
-#     # 1) Single-line: Question::Answer
-#     for m in re.finditer(r'^(.*?[^:])::(.*)$', s_text, flags=re.MULTILINE):
-#         q = m.group(1).strip()
-#         a = m.group(2).strip()
-#         cards.append({'type': 'single', 'Q': q, 'A': a})
-#
-#     # 2) Single-line reversed: Question:::Answer
-#     for m in re.finditer(r'^(.*?[^:]):::(.*)$', s_text, flags=re.MULTILINE):
-#         q = m.group(1).strip()
-#         a = m.group(2).strip()
-#         cards.append({'type': 'single_reversed', 'Q': q, 'A': a})
-#
-#     # 3) Multi-line style (Separated by ? on its own line)
-#     # Question block, then line with ?, then answer block
-#     multi_pattern = re.compile(
-#         r'(^.+?(?:\n(?!\?).+?)*)\n\?\n(.+?(?:\n(?!\?).+?)*)',
-#         flags=re.MULTILINE
-#     )
-#     for m in multi_pattern.finditer(s_text):
-#         q = m.group(1).strip()
-#         a = m.group(2).strip()
-#         cards.append({'type': 'multi', 'Q': q, 'A': a})
-#
-#     return cards
+def get_lo_qa_entry(file_paths):
+    # return list of all QA-entries in note: qa_entry.QA, possibly qa_entry.QA_zotero_hash, qa_entry.QA_deck
+    lo_qa_entry = []
+    # Get frontmatter of note
+    for file_path in file_paths:
+        fn = os.path.basename(file_path)
+        try:
+            post = frontmatter.load(file_path)
+            content_io = io.StringIO(post.content)
+            content = content_io.read()
+        except Exception as e:
+            print(f"Warning: Could not load frontmatter from {file_path}: {e}")
+            continue
+
+        # for example: #ToDo_QA
+        if rgx_QA_exclude.search(content):
+            continue
+
+        # Pattern of QA
+        # if not rgx_QA_pattern.search(content):
+        #     continue
+        QA_matches =  rgx_QA_pattern.finditer(content)
+        if not QA_matches:
+            continue
+
+        # QA == Question-Answer text .
+        lo_do_QA_org = []
+        # QA_deck_block == block of text beginning with tag indicating deck of one or more QAs.
+        lo_QA_deck_block = get_lo_QA_deck_block(content)
+
+        # transform multiple QA textblock in multiple dicts of QA: "QA_deck": ..., "s_QA": ...
+        for QA_deck_block in lo_QA_deck_block:
+            lo_do_QA_org.extend(get_lo_d_QA(QA_deck_block))
+
+        # normalize every d_QA and add hash of Text of QA
+        # Normalize and clean QA from Timestamp of Spaced Repetition and ID of tac.py
+        lo_do_QA = get_lo_d_QA_normalized(lo_do_QA_org)
+        # "QA_deck": ..., "s_QA": ..., "QA_TimeStamp": ..., "QA_hash": ...
+
+        # Print result
+        print("Total QA entries:", len(lo_do_QA))
+        pprint(lo_do_QA)
 
 
+        # Anki: Deck
+        fixed_QA_prefix = "#QA_DECK_"
+        lo_QA_deck = get_l_s_QA_deck(content, rgx_QA_DECK, fixed_QA_prefix)
 
-# def parse_spaced_repetition_file_with_decks_v0(path):
-#     with open(path, 'r', encoding='utf-8') as f:
-#         lines = f.readlines()
-#
-#     cards = []
-#     current_decks = []
-#
-#     deck_pattern = re.compile(r'^(?:##|#flashcards)\s*(.+)$', re.IGNORECASE)
-#     deck_pattern = re.compile(r'^(?:#flashcards)\s*(.+)$', re.IGNORECASE)
-#     single_line_pattern = re.compile(r'^(.*?[^:])::(.*)$')
-#     single_line_rev_pattern = re.compile(r'^(.*?[^:]):::(.*)$')
-#     multiline_sep = '?'
-#
-#     buffer = []
-#     multiline_mode = False
-#
-#     def add_multiline_card(buffer, decks):
-#         s_text = ''.join(buffer).strip()
-#         # Split at multiline_sep on its own line
-#         parts = re.split(r'\n\?\n', s_text, maxsplit=1)
-#         if len(parts) == 2:
-#             q, a = parts
-#             if not q.lower().startswith('q:'):
-#                 q = 'Q: ' + q.strip()
-#             if not a.lower().startswith('a:'):
-#                 a = 'A: ' + a.strip()
-#             cards.append({'type': 'multi', 'Q': q, 'A': a, 'Decks': decks.copy()})
-#
-#     for line in lines:
-#         deck_match = deck_pattern.match(line)
-#         if deck_match:
-#             # Update current deck(s), split by comma if multiple
-#             current_decks = [d.strip() for d in deck_match.group(1).split(',')]
-#             continue
-#
-#         if multiline_mode:
-#             if line.strip() == '':
-#                 # end of multiline flashcard block
-#                 add_multiline_card(buffer, current_decks)
-#                 buffer = []
-#                 multiline_mode = False
-#             else:
-#                 buffer.append(line)
-#         else:
-#             # Check if this line is start of multiline flashcard (e.g. question lines)
-#             if multiline_sep in line.strip():
-#                 multiline_mode = True
-#                 buffer = [line]
-#             else:
-#                 # Try single line patterns
-#                 m = single_line_pattern.match(line)
-#                 if m:
-#                     q, a = m.group(1).strip(), m.group(2).strip()
-#                     cards.append({'type': 'single', 'Q': q, 'A': a, 'Decks': current_decks.copy()})
-#                     continue
-#                 m = single_line_rev_pattern.match(line)
-#                 if m:
-#                     q, a = m.group(1).strip(), m.group(2).strip()
-#                     cards.append({'type': 'single_reversed', 'Q': q, 'A': a, 'Decks': current_decks.copy()})
-#                     continue
-#
-#     # If still in multiline mode at EOF:
-#     if multiline_mode and buffer:
-#         add_multiline_card(buffer, current_decks)
-#
-#     return cards
+        # Get from frontmatter: QA_zotero_hash ... unique ID to identify QA.
+        metadata        = post.metadata
+        QA_zotero_hash  = get_QA_zotero_hash_from_frontmatter(file_path, metadata, post, rgx_QA_SR_hash)
 
-# def parse_spaced_repetition_file_with_decks_v1(path):
-#     with open(path, 'r', encoding='utf-8') as f:
-#         lines = f.readlines()
-#
-#     cards = []
-#     current_decks = []
-#
-#     # Match lines starting with '#flashcards' and capture entire line after it optionally with spaces
-#     deck_pattern = re.compile(r'^(#flashcards.*)$', re.IGNORECASE)
-#
-#     single_line_pattern = re.compile(r'^(.*?[^:])::(.*)$')
-#     single_line_rev_pattern = re.compile(r'^(.*?[^:]):::(.*)$')
-#     multiline_sep = '?'
-#
-#     buffer = []
-#     multiline_mode = False
-#     multiline_mode = True
-#
-#     def add_multiline_card(buffer, decks):
-#         s_text = ''.join(buffer).strip()
-#         parts = re.split(r'\n\?\n', s_text, maxsplit=1)
-#         if len(parts) == 2:
-#             q, a = parts
-#             if not q.lower().startswith('q:'):
-#                 q = 'Q: ' + q.strip()
-#             if not a.lower().startswith('a:'):
-#                 a = 'A: ' + a.strip()
-#             cards.append({'type': 'multi', 'Q': q, 'A': a, 'Decks': decks.copy()})
-#
-#     for line in lines:
-#         deck_match = deck_pattern.match(line.strip())
-#         if deck_match:
-#             # Entire matched line is the deck description (including all hashes)
-#             deck_line = deck_match.group(1).strip()
-#             # You can split decks by space or comma if needed, or keep as single string list:
-#             current_decks = [deck_line]
-#             continue
-#
-#         if multiline_mode:
-#             if line.strip() == '':
-#                 add_multiline_card(buffer, current_decks)
-#                 buffer = []
-#                 multiline_mode = False
-#             else:
-#                 buffer.append(line)
-#         else:
-#             if multiline_sep in line.strip():
-#                 multiline_mode = True
-#                 buffer = [line]
-#             else:
-#                 m = single_line_pattern.match(line)
-#                 if m:
-#                     q, a = m.group(1).strip(), m.group(2).strip()
-#                     cards.append({'type': 'single', 'Q': q, 'A': a, 'Decks': current_decks.copy()})
-#                     continue
-#                 m = single_line_rev_pattern.match(line)
-#                 if m:
-#                     q, a = m.group(1).strip(), m.group(2).strip()
-#                     cards.append({'type': 'single_reversed', 'Q': q, 'A': a, 'Decks': current_decks.copy()})
-#                     continue
-#
-#     if multiline_mode and buffer:
-#         add_multiline_card(buffer, current_decks)
-#
-#     return cards
+        continue
+        return
 
-# def parse_spaced_repetition_file(path):
-#     with open(path, 'r', encoding='utf-8') as f:
-#         s_text = f.read()
-#
-#     cards = []
-#
-#     # Split into flashcard blocks by marker lines that start flashcards or note boundaries (customize as needed)
-#     # For simplicity, assume entire file is cards separated by blank lines
-#     blocks = re.split(r'\n\s*\n', s_text.strip())
-#
-#     for block in blocks:
-#         # Try multi-line split based on a line with ? or ??
-#         m = re.search(r'^\s*\?{1,2}\s*$', block, re.MULTILINE)
-#         if m:
-#             # Split front and back on that line
-#             parts = re.split(r'^\s*\?{1,2}\s*$', block, maxsplit=1, flags=re.MULTILINE)
-#             if len(parts) == 2:
-#                 front = parts[0].strip()
-#                 back = parts[1].strip()
-#                 cards.append({'type': 'multiline', 'Q': front, 'A': back})
-#                 continue
-#
-#         # Fallback single line flashcard syntax
-#         m_single = re.match(r'^(.*?)::(.*)$', block, re.DOTALL)
-#         if m_single:
-#             cards.append({'type': 'single', 'Q': m_single.group(1).strip(), 'A': m_single.group(2).strip()})
-#             continue
-#
-#     return cards
+        # Get QA-text_blocks in note - maybe multiple QA's, hence list.
+        lo_s_qa = get_lo_s_QA(content, rgx_QA_pattern)
 
-# def parse_spaced_repetition_file_with_decks(path):
-#     with open(path, 'r', encoding='utf-8') as f:
-#         lines = f.readlines()
-#
-#     cards = []
-#     current_decks = []
-#
-#     # Deck lines start with '#flashcards' and may include multiple tags (all captured)
-#     deck_pattern = re.compile(r'^(#flashcards\S.*)$', re.IGNORECASE)
-#
-#     # Single line flashcard patterns
-#     single_line_pattern = re.compile(r'^(.*?[^:])::(.*)$')
-#     single_line_rev_pattern = re.compile(r'^(.*?[^:]):::(.*)$')
-#
-#     buffer = []
-#     multiline_mode = True
-#
-#     def add_multiline_card(buffer, decks):
-#         s_text = ''.join(buffer).strip()
-#         parts = re.split(r'\n\?\n', s_text, maxsplit=1)
-#         if len(parts) == 2:
-#             front, back = map(str.strip, parts)
-#             if not front.lower().startswith('q:'):
-#                 front = 'Q: ' + front
-#             if not back.lower().startswith('a:'):
-#                 back = 'A: ' + back
-#             cards.append({'type': 'multiline', 'Q': front, 'A': back, 'Decks': decks.copy()})
-#
-#     for line in lines:
-#         line_stripped = line.strip()
-#         deck_match = deck_pattern.match(line_stripped)
-#         if deck_match:
-#             # Capture the entire deck tag line, including all spaces and hashes
-#             current_decks = [deck_match.group(1)]
-#             continue
-#
-#         if multiline_mode:
-#             if line_stripped == '':
-#                 add_multiline_card(buffer, current_decks)
-#                 buffer = []
-#                 multiline_mode = False
-#             else:
-#                 buffer.append(line)
-#         else:
-#             # Start multiline mode if line contains a line with "?" used as a split
-#             if '?' in line_stripped:
-#                 buffer = [line]
-#                 multiline_mode = True
-#             else:
-#                 m = single_line_pattern.match(line)
-#                 if m:
-#                     q, a = m.group(1).strip(), m.group(2).strip()
-#                     cards.append({'type': 'single', 'Q': q, 'A': a, 'Decks': current_decks.copy()})
-#                     continue
-#                 m = single_line_rev_pattern.match(line)
-#                 if m:
-#                     q, a = m.group(1).strip(), m.group(2).strip()
-#                     cards.append({'type': 'single_reversed', 'Q': q, 'A': a, 'Decks': current_decks.copy()})
-#                     continue
-#
-#     # End of file; finalize any buffered multiline card
-#     if multiline_mode and buffer:
-#         add_multiline_card(buffer, current_decks)
-#
-#     return cards
+        # note may possibly be modified (by inserting QA_zotero_hash to QA)
+        modified_content = content
+        multiple_matches = len(lo_s_qa) > 1
+
+        # QA-text_blocks possibly have already QA_zotero_hash -> make list of them
+        lo_all_QA_hashes = get_lo_all_QA_hashes(content, rgx_QA_SR_hash)
+
+        # ???
+        # lo_qa_hash = [''] * len(lo_s_qa)
+
+        # For every QA-text_block
+        for idx, s_qa in enumerate(lo_s_qa):
+            s_qa_block = get_normalized_s_qa_block(s_qa)
+            s_qa_d8_hash_calc = calc_d8_hash(s_qa_block)
+            s_qa_d8_hash = rgx_d8_hash.search(s_qa_block)
+            if not s_qa_d8_hash or (s_qa_d8_hash != s_qa_d8_hash_calc):
+                s_qa_d8_hash = s_qa_d8_hash_calc
+
+                if multiple_matches:
+                    candidate_idx = idx
+                    QA_hash_idx = f'{QA_zotero_hash}_{candidate_idx:03d}'
+                    while QA_hash_idx in lo_all_QA_hashes:
+                        candidate_idx += 1
+                        QA_hash_idx = f'{QA_zotero_hash}_{candidate_idx:03d}_{s_qa_d8_hash}'
+
+                    insert_str = f'({QA_hash_idx}_{s_qa_d8_hash})\n'
+                else:
+                    insert_str = f'({QA_zotero_hash}_{s_qa_d8_hash})\n'
+
+                modified_content = re.sub(
+                    rf'({s_qa_block})',
+                    rf'\1{insert_str}',
+                    modified_content,
+                    count=1
+                )
+                # modify A: attaching index (oder hash von s_qa_block?)
+                # lo_s_qa[idx][0] = lo_s_qa[idx][0] + '\n' + insert_str
+                s_qa_new = (lo_s_qa[idx][0], lo_s_qa[idx][1] + '\n' + insert_str)
+                lo_s_qa[idx] = s_qa_new
+                # lo_qa_hash[idx-1] = QA_zotero_hash
+
+        orig_dir = os.path.dirname(file_path)
+        base_name = os.path.basename(file_path)
+
+        if base_name.startswith(fn_prefix):
+            new_filename = base_name
+        else:
+            new_filename = fn_prefix + base_name
+
+        new_file_path = os.path.normpath(os.path.join(orig_dir, new_filename))
+
+        fm_text = frontmatter.dumps(post)
+        split_index = fm_text.find('---', 3)
+        if split_index == -1:
+            frontmatter_header = fm_text
+        else:
+            frontmatter_header = fm_text[:split_index + 3]
+
+        full_new_content = frontmatter_header + '\n' + modified_content
+
+        if os.path.exists(new_file_path):
+            if not os.path.isfile(new_file_path):
+                return False
+            with open(new_file_path, 'r', encoding='utf-8') as new_f:
+                new_content = new_f.read()
+
+            differ  = difflib.Differ()
+            delta_x = list(differ.compare(new_content.splitlines(), full_new_content.splitlines()))
+            delta   = "\n".join(delta_x)
+            if new_content == full_new_content:
+                print(f"File identical, skipping overwrite: {new_file_path}")
+            else:
+                with open(new_file_path, 'w', encoding='utf-8') as f_new:
+                    f_new.write(full_new_content)
+                print(f"File updated: {new_file_path}")
+            if new_file_path in file_paths:
+                file_paths.remove(new_file_path)
+        else:
+            with open(new_file_path, 'w', encoding='utf-8') as f_new:
+                f_new.write(full_new_content)
+            print(f"File written: {new_file_path}")
+
+        for s_QA in lo_s_qa:
+            for QA_deck in lo_QA_deck:
+                s_qa = re.search(rgx_QA_SR_hash, s_QA[1])
+                QA_zotero_hash = s_qa.group(0) if s_qa else ''
+                qa_entry = {
+                    'QA_deck': QA_deck,
+                    'QA_zotero_hash': QA_zotero_hash,
+                    's_QA': s_QA,
+                    # 'path': file_path,
+                    'path': fn,
+                }
+                lo_qa_entry.append(qa_entry)
+    return lo_qa_entry
 
 def get_lo_qa_card(text):
-    lo_qa_card = []
+    lo_flashcard = []
 
     # Split s_text into blocks by lines starting with #flashcards (keep markers)
     block_split = re.split(r'(?=^#flashcards[^\n]*)', text, flags=re.MULTILINE)
@@ -678,7 +685,7 @@ def get_lo_qa_card(text):
             if m_rev:
                 q = m_rev.group(1).strip()
                 a = m_rev.group(2).strip()
-                lo_qa_card.append({'Decks': decks, 'Q': q, 'A': a})
+                lo_flashcard.append({'Decks': decks, 'Q': q, 'A': a})
                 continue
 
             # Try single-line (Q::A)
@@ -686,75 +693,20 @@ def get_lo_qa_card(text):
             if m:
                 q = m.group(1).strip()
                 a = m.group(2).strip()
-                lo_qa_card.append({'Decks': decks, 'Q': q, 'A': a})
+                lo_flashcard.append({'Decks': decks, 'Q': q, 'A': a})
                 continue
 
             # Try multiline separated by a line containing only '?'
             parts = re.split(r'^\?\s*$', card_text, flags=re.MULTILINE)
             if len(parts) == 2:
                 q, a = parts[0].strip(), parts[1].strip()
-                lo_qa_card.append({'Decks': decks, 'Q': q, 'A': a})
+                lo_flashcard.append({'Decks': decks, 'Q': q, 'A': a})
                 continue
 
             # Skip if no known format matched
 
-    return lo_qa_card
+    return lo_flashcard
 
-
-
-# def get_lo_qa_card(rgx_QA_hash, p_QA, QA_tag):
-#     lo_p_fn_qa = []
-#     lo_qa_card = []
-#
-#     for root, _, files in os.walk(p_QA):
-#         for fname in files:
-#             if fname.endswith('.md'):
-#                 p_fn = os.path.normpath(os.path.join(root, fname))
-#                 with open(p_fn, 'r') as f:
-#                     first_line = f.readline()
-#                     if first_line.startswith(QA_tag):
-#                         lo_p_fn_qa.append(p_fn)
-#
-#     pattern = r"^#flashcard.*?(?=^#flashcard|\Z)"
-#     for p_fn_qa in lo_p_fn_qa:
-#         with open(p_fn_qa, 'r', encoding='utf-8') as f:
-#             s_text = f.read()
-#
-#         blocks = re.findall(pattern, s_text, re.DOTALL | re.MULTILINE)
-#
-#         print(f"\n###############\n")
-#         for i, block in enumerate(blocks, 1):
-#             # print(f"Block {i}:\n{block}\n------")
-#             lo_qa_card = parse_flashcards(block)
-#             pprint.pprint(lo_qa_card)
-#
-#         return
-#
-#         if not lines:
-#             continue
-#
-#         first_line = lines[0].strip()
-#         if not first_line.startswith(prefix):
-#             continue
-#
-#         s_deck = first_line[len(prefix):]
-#
-#         content = ''.join(lines)
-#
-#         lo_s_qa = [m.group(0) for m in chunk_pattern.finditer(content)]
-#
-#         for s_QA in lo_s_qa:
-#             if '#flashcard' in s_QA:
-#                 match = re.search(rgx_QA_hash, s_QA)
-#                 QA_hash = match.group(0) if match else ''
-#                 lo_qa_card.append({
-#                     'QA_deck': s_deck,
-#                     'QA_hash': QA_hash,
-#                     's_QA': s_QA,
-#                     'file_path': p_fn_qa,
-#                 })
-#
-#     return lo_qa_card
 
 def merge_QA_items(lo_qa_entry, lo_qa_card):
     # Set of all QA_deck from lo_qa_card
@@ -797,9 +749,11 @@ def main():
     lo_qa_entry = get_lo_qa_entry(all_files)
 
     # get list of all QA's in QA-files (flashcard)
-    # lo_qa_card  = get_lo_qa_card(rgx_QA_hash, p_QA, QA_tag)
+    # lo_qa_card  = get_lo_qa_card(rgx_QA_SR_hash, p_QA, QA_tag)
 
     lo_p_fn_qa = []
+    lo_qa_card = []
+
     for root, _, files in os.walk(p_QA):
         for fname in files:
             if fname.endswith('.md'):
@@ -809,22 +763,17 @@ def main():
                     if first_line.startswith(QA_tag):
                         lo_p_fn_qa.append(p_fn)
 
-    # get list of all QA's in QA-files (flashcard|anki| ...)
-    lo_qa_card = []
     for p_fn_qa in lo_p_fn_qa:
         with open(p_fn_qa, 'r', encoding='utf-8') as f:
             qa_file_text = f.read()
-            # lo_qa_card  = parse_spaced_repetition_file(p_fn_qa)
-            # lo_qa_card  = parse_spaced_repetition_file_with_decks(p_fn_qa)
-            # lo_qa_card  = parse_spaced_repetition_file_with_decks(p_fn_qa)
-            lo_qa_card   += get_lo_qa_card(qa_file_text)
+            lo_qa_card  = get_lo_qa_card(qa_file_text)
             pass
 
 
     # all_files   = find_files_with_extension(p_root, ext)
     # lo_qa_entry = get_lo_qa_entry(all_files)
     #
-    # lo_qa_card  = get_lo_qa_card(rgx_QA_hash, p_QA)
+    # lo_qa_card  = get_lo_qa_card(rgx_QA_SR_hash, p_QA)
 
     # for entry in lo_qa_entry:
     #     print(entry)
