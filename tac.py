@@ -71,7 +71,7 @@ def calc_d8_hash(s_qa_block) -> str:
 
 def get_d8_hash_vs_0(s_qa_block):
     # Get 8 digits of hash of 's_qa_block'
-    # 's_qa_block' == textblock one containing Q: and A: text.
+    # 's_qa_block' == textblock one containing Q: and A: s_text.
     # 'search in 's_qa_block' string like: '(Y2BBMT5N_000_51275410)'
 
     QA_hash_long = rgx_QA_hash.search(s_qa_block)
@@ -345,57 +345,57 @@ def get_lo_qa_entry(file_paths):
                 lo_qa_entry.append(qa_entry)
     return lo_qa_entry
 
-def parse_flashcards(text):
-    lo_qa_card = []
-    # Split text on marker lines, keeping them as separate entries
-    # r"^#marker\s*(.*)$((?:\n|\r\n?)*)",
-    #     re.MULTILINE
-    blocks = re.split(r'(^#flashcards.*$)', text, flags=re.MULTILINE)
-    blocks = re.split(r'(^#flashcards\s*(.*)$((?:\n|\r\n?)*))', text, flags=re.MULTILINE)
-
-    # blocks alternate as ['', marker line, content, marker line, content, ...]
-    if blocks[0].strip() == '':
-        blocks = blocks[1:]
-
-    # Process pairs of (marker line, content block)
-    for i in range(0, len(blocks), 2):
-        deck_line = blocks[i].strip()
-        if (i+1) >= len(blocks):
-            continue
-        content_block = blocks[i+1].split('\n\n')[0].strip()  # Trim at first empty line
-
-        # Split at one to three question marks
-        split_q_a = re.split(r'\?{1,3}', content_block, maxsplit=1)
-        if len(split_q_a) != 2:
-            continue  # Skip if can't split properly
-
-        q_part, a_part = map(str.strip, split_q_a)
-
-        # Prepend 'Q: ' or 'A: ' if missing (case insensitive)
-        if not re.match(r'^Q:\s*', q_part, re.IGNORECASE):
-            q_part = 'Q: ' + q_part
-        if not re.match(r'^A:\s*', a_part, re.IGNORECASE):
-            a_part = 'A: ' + a_part
-
-        card = {'Decks': deck_line, 'Q': q_part, 'A': a_part}
-        lo_qa_card.append(card)
-
-    return lo_qa_card
+# def parse_flashcards(s_text):
+#     lo_qa_card = []
+#     # Split s_text on marker lines, keeping them as separate entries
+#     # r"^#marker\s*(.*)$((?:\n|\r\n?)*)",
+#     #     re.MULTILINE
+#     blocks = re.split(r'(^#flashcards.*$)', s_text, flags=re.MULTILINE)
+#     blocks = re.split(r'(^#flashcards\s*(.*)$((?:\n|\r\n?)*))', s_text, flags=re.MULTILINE)
+#
+#     # blocks alternate as ['', marker line, content, marker line, content, ...]
+#     if blocks[0].strip() == '':
+#         blocks = blocks[1:]
+#
+#     # Process pairs of (marker line, content block)
+#     for i in range(0, len(blocks), 2):
+#         deck_line = blocks[i].strip()
+#         if (i+1) >= len(blocks):
+#             continue
+#         content_block = blocks[i+1].split('\n\n')[0].strip()  # Trim at first empty line
+#
+#         # Split at one to three question marks
+#         split_q_a = re.split(r'\?{1,3}', content_block, maxsplit=1)
+#         if len(split_q_a) != 2:
+#             continue  # Skip if can't split properly
+#
+#         q_part, a_part = map(str.strip, split_q_a)
+#
+#         # Prepend 'Q: ' or 'A: ' if missing (case insensitive)
+#         if not re.match(r'^Q:\s*', q_part, re.IGNORECASE):
+#             q_part = 'Q: ' + q_part
+#         if not re.match(r'^A:\s*', a_part, re.IGNORECASE):
+#             a_part = 'A: ' + a_part
+#
+#         card = {'Decks': deck_line, 'Q': q_part, 'A': a_part}
+#         lo_qa_card.append(card)
+#
+#     return lo_qa_card
 
 # def parse_spaced_repetition_file(path):
 #     with open(path, 'r', encoding='utf-8') as f:
-#         text = f.read()
+#         s_text = f.read()
 #
 #     cards = []
 #
 #     # 1) Single-line: Question::Answer
-#     for m in re.finditer(r'^(.*?[^:])::(.*)$', text, flags=re.MULTILINE):
+#     for m in re.finditer(r'^(.*?[^:])::(.*)$', s_text, flags=re.MULTILINE):
 #         q = m.group(1).strip()
 #         a = m.group(2).strip()
 #         cards.append({'type': 'single', 'Q': q, 'A': a})
 #
 #     # 2) Single-line reversed: Question:::Answer
-#     for m in re.finditer(r'^(.*?[^:]):::(.*)$', text, flags=re.MULTILINE):
+#     for m in re.finditer(r'^(.*?[^:]):::(.*)$', s_text, flags=re.MULTILINE):
 #         q = m.group(1).strip()
 #         a = m.group(2).strip()
 #         cards.append({'type': 'single_reversed', 'Q': q, 'A': a})
@@ -406,7 +406,7 @@ def parse_flashcards(text):
 #         r'(^.+?(?:\n(?!\?).+?)*)\n\?\n(.+?(?:\n(?!\?).+?)*)',
 #         flags=re.MULTILINE
 #     )
-#     for m in multi_pattern.finditer(text):
+#     for m in multi_pattern.finditer(s_text):
 #         q = m.group(1).strip()
 #         a = m.group(2).strip()
 #         cards.append({'type': 'multi', 'Q': q, 'A': a})
@@ -432,9 +432,9 @@ def parse_flashcards(text):
 #     multiline_mode = False
 #
 #     def add_multiline_card(buffer, decks):
-#         text = ''.join(buffer).strip()
+#         s_text = ''.join(buffer).strip()
 #         # Split at multiline_sep on its own line
-#         parts = re.split(r'\n\?\n', text, maxsplit=1)
+#         parts = re.split(r'\n\?\n', s_text, maxsplit=1)
 #         if len(parts) == 2:
 #             q, a = parts
 #             if not q.lower().startswith('q:'):
@@ -501,8 +501,8 @@ def parse_flashcards(text):
 #     multiline_mode = True
 #
 #     def add_multiline_card(buffer, decks):
-#         text = ''.join(buffer).strip()
-#         parts = re.split(r'\n\?\n', text, maxsplit=1)
+#         s_text = ''.join(buffer).strip()
+#         parts = re.split(r'\n\?\n', s_text, maxsplit=1)
 #         if len(parts) == 2:
 #             q, a = parts
 #             if not q.lower().startswith('q:'):
@@ -550,13 +550,13 @@ def parse_flashcards(text):
 
 # def parse_spaced_repetition_file(path):
 #     with open(path, 'r', encoding='utf-8') as f:
-#         text = f.read()
+#         s_text = f.read()
 #
 #     cards = []
 #
 #     # Split into flashcard blocks by marker lines that start flashcards or note boundaries (customize as needed)
 #     # For simplicity, assume entire file is cards separated by blank lines
-#     blocks = re.split(r'\n\s*\n', text.strip())
+#     blocks = re.split(r'\n\s*\n', s_text.strip())
 #
 #     for block in blocks:
 #         # Try multi-line split based on a line with ? or ??
@@ -596,8 +596,8 @@ def parse_flashcards(text):
 #     multiline_mode = True
 #
 #     def add_multiline_card(buffer, decks):
-#         text = ''.join(buffer).strip()
-#         parts = re.split(r'\n\?\n', text, maxsplit=1)
+#         s_text = ''.join(buffer).strip()
+#         parts = re.split(r'\n\?\n', s_text, maxsplit=1)
 #         if len(parts) == 2:
 #             front, back = map(str.strip, parts)
 #             if not front.lower().startswith('q:'):
@@ -645,9 +645,9 @@ def parse_flashcards(text):
 #     return cards
 
 def get_lo_qa_card(text):
-    lo_flashcard = []
+    lo_qa_card = []
 
-    # Split text into blocks by lines starting with #flashcards (keep markers)
+    # Split s_text into blocks by lines starting with #flashcards (keep markers)
     block_split = re.split(r'(?=^#flashcards[^\n]*)', text, flags=re.MULTILINE)
 
     for block in block_split:
@@ -678,7 +678,7 @@ def get_lo_qa_card(text):
             if m_rev:
                 q = m_rev.group(1).strip()
                 a = m_rev.group(2).strip()
-                lo_flashcard.append({'Decks': decks, 'Q': q, 'A': a})
+                lo_qa_card.append({'Decks': decks, 'Q': q, 'A': a})
                 continue
 
             # Try single-line (Q::A)
@@ -686,19 +686,19 @@ def get_lo_qa_card(text):
             if m:
                 q = m.group(1).strip()
                 a = m.group(2).strip()
-                lo_flashcard.append({'Decks': decks, 'Q': q, 'A': a})
+                lo_qa_card.append({'Decks': decks, 'Q': q, 'A': a})
                 continue
 
             # Try multiline separated by a line containing only '?'
             parts = re.split(r'^\?\s*$', card_text, flags=re.MULTILINE)
             if len(parts) == 2:
                 q, a = parts[0].strip(), parts[1].strip()
-                lo_flashcard.append({'Decks': decks, 'Q': q, 'A': a})
+                lo_qa_card.append({'Decks': decks, 'Q': q, 'A': a})
                 continue
 
             # Skip if no known format matched
 
-    return lo_flashcard
+    return lo_qa_card
 
 
 
@@ -718,9 +718,9 @@ def get_lo_qa_card(text):
 #     pattern = r"^#flashcard.*?(?=^#flashcard|\Z)"
 #     for p_fn_qa in lo_p_fn_qa:
 #         with open(p_fn_qa, 'r', encoding='utf-8') as f:
-#             text = f.read()
+#             s_text = f.read()
 #
-#         blocks = re.findall(pattern, text, re.DOTALL | re.MULTILINE)
+#         blocks = re.findall(pattern, s_text, re.DOTALL | re.MULTILINE)
 #
 #         print(f"\n###############\n")
 #         for i, block in enumerate(blocks, 1):
@@ -800,8 +800,6 @@ def main():
     # lo_qa_card  = get_lo_qa_card(rgx_QA_hash, p_QA, QA_tag)
 
     lo_p_fn_qa = []
-    lo_qa_card = []
-
     for root, _, files in os.walk(p_QA):
         for fname in files:
             if fname.endswith('.md'):
@@ -811,13 +809,15 @@ def main():
                     if first_line.startswith(QA_tag):
                         lo_p_fn_qa.append(p_fn)
 
+    # get list of all QA's in QA-files (flashcard|anki| ...)
+    lo_qa_card = []
     for p_fn_qa in lo_p_fn_qa:
         with open(p_fn_qa, 'r', encoding='utf-8') as f:
             qa_file_text = f.read()
             # lo_qa_card  = parse_spaced_repetition_file(p_fn_qa)
             # lo_qa_card  = parse_spaced_repetition_file_with_decks(p_fn_qa)
             # lo_qa_card  = parse_spaced_repetition_file_with_decks(p_fn_qa)
-            lo_qa_card  = get_lo_qa_card(qa_file_text)
+            lo_qa_card   += get_lo_qa_card(qa_file_text)
             pass
 
 
