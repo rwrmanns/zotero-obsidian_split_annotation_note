@@ -17,14 +17,14 @@ fn_prefix = '_NEW_'
 
 rgx_html_comment = re.compile(r'<!--.*?-->', re.DOTALL)
 
-rgx_QA_exclude     = ''
-rgx_QA_pattern     = ''
-rgx_QA_DECK        = ''
-rgx_d8_hash        = ''
-rgx_QA_stopword    = ""
-rgx_QA_block_begin = ""
-rgx_QA_SR_hash     = ""          # hash of deck + s_QA
-rgx_html_comment   = ''          # Regex that matches HTML comments (including multiline)
+rgx_QA_exclude     = None
+rgx_QA_pattern     = None
+rgx_QA_DECK        = None
+rgx_d8_hash        = None
+rgx_QA_startword   = None
+rgx_QA_block       = None
+rgx_QA_SR_hash     = None          # hash of deck + s_QA
+rgx_html_comment   = None          # Regex that matches HTML comments (including multiline)
 
 
 def load_config(ini_path):
@@ -32,8 +32,8 @@ def load_config(ini_path):
     global rgx_QA_pattern
     global rgx_QA_DECK
     global rgx_d8_hash
-    global rgx_QA_stopword
-    global rgx_QA_block_begin
+    global rgx_QA_startword
+    global rgx_QA_block
     global rgx_QA_SR_hash
     global rgx_html_comment
 
@@ -52,25 +52,63 @@ def load_config(ini_path):
     rgx_d8_hash      = re.compile(config['DEFAULT']['rgx_d8_hash'], re.MULTILINE | re.DOTALL)
     rgx_html_comment = re.compile(r'<!--.*?-->', re.DOTALL)
 
-    lo_stopword_raw = ['#flashcards', '#QA_DECK_']
-    lo_QA_stopword  = [re.escape(sw) for sw in lo_stopword_raw]
-    s_stopword_tail = r"[A-Za-z0-9_/\-\\]{0,25}"
+    lo_startword_raw = ['#flashcards', '#QA_DECK_']
+    lo_QA_startword  = [re.escape(sw) for sw in lo_startword_raw]
+    s_startword_tail = r"[A-Za-z0-9_/\-\\]{0,25}"
 
-    # STOPWORD REGEX
-    rgx_QA_stopword            = r"(?:%s)%s" % ("|".join(lo_QA_stopword), s_stopword_tail)
-    rgx_QA_block_begin_pattern = (r"(" + rgx_QA_stopword + r"(?:\s+" + rgx_QA_stopword + r")*)")
+    # ToDo get stopword from *.ini
+    lo_stopword_raw = list(lo_startword_raw)
+    lo_stopword_raw.append(['Quelle: '])
+    lo_QA_stopword  = [re.escape(sw) for sw in lo_startword_raw]
+    # startword REGEX
+    rgx_QA_lo_stopword            = r"(?:{})".format("|".join(re.escape(QA_stopword) for QA_stopword in lo_QA_stopword))
+
+    words = ['#flashcards', '#QA_DECK_']
+    pattern = r"(?:{})".format("|".join(re.escape(w) for w in words))
+
+    rgx = re.compile(pattern)
+
+    rgx_QA_startword           = r"(?:%s)%s" % ("|".join(lo_QA_startword), s_startword_tail)
+    rgx_QA_block_begin_pattern = (r"(" + rgx_QA_startword + r"(?:\s+" + rgx_QA_startword + r")*)")
     rgx_QA_block_begin         = re.compile(r"^" + rgx_QA_block_begin_pattern + r"$", re.MULTILINE)
+    rgx_QA_block_end           = re.compile(r"^" + rgx_QA_lo_stopword)
     rgx_html_comment           = re.compile(r"<!--.*?-->", re.DOTALL)
     rgx_QA_SR_hash             = re.compile(r"([A-Z0-9]{8})(?:_(\d{3}))?(?:_(\d{8}))?")
 
+    #################################
 
-    # rgx_QA_pattern = re.compile(s_rgx_QA_pattern, re.VERBOSE | re.MULTILINE)
-    rgx_QA_pattern = rgx_QA_block_begin
-    # Default value for s_QA_DECK
-    s_QA_DECK = '#QA_Deck_'
+    QA_lo_start_tag = ["#QA_DECK_", "#flashard_"]
 
-    # Define rgx_QA_deck which matches the fixed part followed by up to 25 characters without spaces
-    rgx_QA_deck = re.escape(s_QA_DECK) + r'[^\s]{1,25}'
+    # Escape each tag so '#' and other characters become literal.
+    rgx_QA_lo_start_tag = "|".join(re.escape(tag) + r"[A-Za-z0-9._-]+" for tag in QA_lo_start_tag)  # tag + file-safe chars
+
+    # Compile begin-regex (still matches only at the beginning of a line)
+    rgx_QA_block_begin = re.compile(rf"^(?:{rgx_QA_lo_start_tag})", re.MULTILINE)
+
+    QA_lo_stop_tag = ["Quelle: ", "source: "]
+
+    # Combine:
+    # - fixed stopword lines (escaped)
+    # - block-begin lines as QA_lo_stop_tag (so a new block ends the previous one)
+    rgx_QA_lo_stop_tag = "|".join([re.escape(w) for w in QA_lo_stop_tag] + [rgx_QA_lo_start_tag])
+
+    # Regex: line begins with either a stopword or another block begin
+    rgx_QA_lo_stopword = re.compile(rf"^(?:{rgx_QA_lo_stop_tag})", re.MULTILINE)
+
+    # 3. MAIN BLOCK EXTRACTION REGEX
+    rgx_QA_block = re.compile(
+        rf"""
+        (?P<begin> {rgx_QA_block_begin.pattern}   # block starts here
+        )
+        (?P<body>  .*?                            # non-greedy body text
+        )
+        (?= ^(?:{rgx_QA_lo_stop_tag})             # stop BEFORE stopword/next block
+        )
+        """,
+        re.DOTALL | re.MULTILINE | re.VERBOSE
+    )
+
+    rgx_QA_pattern = rgx_QA_block
 
     return p_root, ext, p_QA, QA_tag
 
@@ -92,16 +130,42 @@ def get_lo_QA_deck_block(text):
     # QA_deck_block == block of text beginning with tag indicating deck of one or more following QAs.
 
     lo_QA_deck_block = []
-    matches = list(rgx_QA_block_begin.finditer(text))
+    # matches = list(rgx_QA_block_begin.finditer(text))
+    # matches = list(rgx_QA_block.finditer(text))
+    matches = [block.group() for block in rgx_QA_block.finditer(text)]
     if not matches:
         return []
 
+    # for idx, block in enumerate(blocks, 1):
+    #     print(f"\n--- BLOCK {idx} ---")
+    #     print(block)
+    # for idx, block in enumerate(matches):
+    #     start = block.start()
+    #     end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
     #
-    for i, m in enumerate(matches):
-        start = m.start()
-        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+    #     block_text = text[start:end]
+    #     lines = block_text.splitlines()
+    #
+    #     deck_line = lines[0]
+    #     qa_lines = lines[1:]
+    #
+    #     deck_clean = "\n".join(ln for ln in [deck_line] if get_cleaned_line(ln))
+    #     qa_clean   = "\n".join(ln for ln in qa_lines if get_cleaned_line(ln))
+    #
+    #     lo_QA_deck = re.findall(rgx_QA_startword, deck_clean)
+    #
+    #     lo_QA_deck_block.append({
+    #         "DECK": deck_clean,
+    #         "QA": qa_clean,
+    #         "lo_QA_deck": lo_QA_deck
+    #     })
 
-        block_text = text[start:end]
+    for idx, block_text in enumerate(matches):
+
+        # for example: #ToDo_QA
+        if rgx_QA_exclude.search(block_text):
+            continue
+
         lines = block_text.splitlines()
 
         deck_line = lines[0]
@@ -110,7 +174,7 @@ def get_lo_QA_deck_block(text):
         deck_clean = "\n".join(ln for ln in [deck_line] if get_cleaned_line(ln))
         qa_clean   = "\n".join(ln for ln in qa_lines if get_cleaned_line(ln))
 
-        lo_QA_deck = re.findall(rgx_QA_stopword, deck_clean)
+        lo_QA_deck = re.findall(rgx_QA_startword, deck_clean)
 
         lo_QA_deck_block.append({
             "DECK": deck_clean,
@@ -270,16 +334,9 @@ def get_lo_all_QA_hashes(content: str, rgx_QA_SR_hash) -> list:
 
 
 
-def get_lo_s_QA(content: str, rgx_QA_pattern) -> list[str]:
+def get_lo_s_QA(content: str) -> list[str]:
     # from *.md notes get QA. Transform them into a flashcard file (obsidian Spaced Repetition / anki ?)
-    if flashcard_sys == 'anki':
-        l_qa_match = rgx_QA_pattern.findall(content)
-        if l_qa_match and isinstance(l_qa_match[0], tuple):
-            lo_s_qa = [''.join(m) for m in l_qa_match]
-        else:
-            lo_s_qa = l_qa_match
-        return lo_s_qa
-    elif flashcard_sys == 'flashcards':
+    if flashcard_sys == 'flashcards':
         # print(f"rgx_lo_QA_deck: {match.group('rgx_lo_QA_deck')}")
         # print(f"QA_Question: {match.group('QA_Question')}")
         # print(f"QA_type: {match.group('QA_type')}")
@@ -337,8 +394,6 @@ def get_lo_qa_entry_vs_01(file_paths):
             continue
 
         # Pattern of QA
-        # if not rgx_QA_pattern.search(content):
-        #     continue
         QA_matches =  rgx_QA_pattern.finditer(content)
         if not QA_matches:
             continue
@@ -352,7 +407,7 @@ def get_lo_qa_entry_vs_01(file_paths):
         QA_SR_hash =  get_QA_zotero_hash_from_frontmatter(file_path, metadata, post, rgx_QA_SR_hash)
 
         # Get QA-text_blocks in note - maybe multiple QA's, hence list.
-        lo_s_qa = get_lo_s_QA(content, rgx_QA_pattern)
+        lo_s_qa = get_lo_s_QA(content)
 
         # note may possibly be modified (by inserting QA_SR_hash to QA)
         modified_content = content
@@ -452,6 +507,7 @@ def get_lo_qa_entry_vs_01(file_paths):
 
 
 def get_lo_QA_file(file_paths):
+    # return list of file_paths that contain QA - text blocks.
     lo_do_QA_files = []
     for file_path in file_paths:
         fn = os.path.basename(file_path)
@@ -463,20 +519,14 @@ def get_lo_QA_file(file_paths):
             print(f"Warning: Could not load frontmatter from {file_path}: {e}")
             continue
 
-        # for example: #ToDo_QA
-        if rgx_QA_exclude.search(content):
-            continue
-
         # Pattern of QA
-        # if not rgx_QA_pattern.search(content):
-        #     continue
         QA_matches =  rgx_QA_pattern.finditer(content)
         if not QA_matches:
             continue
 
         d_QA_file = dict()
-        d_QA_file['path']    = file_path
         d_QA_file['fn']      = fn
+        d_QA_file['path']    = file_path
         d_QA_file['post']    = post
         d_QA_file['content'] = content
         lo_do_QA_files.append(d_QA_file)
@@ -485,9 +535,9 @@ def get_lo_QA_file(file_paths):
 
 def get_lo_qa_entry(file_paths):
     # return list of all QA-entries in note: qa_entry.QA, possibly qa_entry.QA_zotero_hash, qa_entry.QA_deck
-    lo_do_QA_file = get_lo_QA_file(file_paths)
-    lo_do_QA_entry      = []
-    lo_qa_entry   = []
+    # >lo_do_QA_file< list of all files with QA section.
+    lo_do_QA_file      = get_lo_QA_file(file_paths)
+    lo_do_QA_entry     = []
     for do_QA_file in lo_do_QA_file:
         # QA == Question-Answer text .
         file_path      = do_QA_file['path']
@@ -729,6 +779,7 @@ def main():
     # Print result
     print("Total QA entries:", len(lo_qa_entry))
     pprint(lo_qa_entry)
+    print("Total QA entries:", len(lo_qa_entry))
 
     # get list of all QA's in QA-files (flashcard)
     # lo_qa_card  = get_lo_qa_card(rgx_QA_SR_hash, p_QA, QA_tag)
