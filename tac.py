@@ -23,6 +23,7 @@ rgx_QA_DECK        = None
 rgx_d8_hash        = None
 rgx_QA_startword   = None
 rgx_QA_block       = None
+rgx_QA_split       = None
 rgx_QA_SR_hash     = None          # hash of deck + s_QA
 rgx_html_comment   = None          # Regex that matches HTML comments (including multiline)
 
@@ -34,6 +35,7 @@ def load_config(ini_path):
     global rgx_d8_hash
     global rgx_QA_startword
     global rgx_QA_block
+    global rgx_QA_split
     global rgx_QA_SR_hash
     global rgx_html_comment
 
@@ -109,6 +111,22 @@ def load_config(ini_path):
     )
 
     rgx_QA_pattern = rgx_QA_block
+
+    rgx_QA_split = re.compile(
+        r'^'
+        r'(?P<QA_Q>.*?)'  # non-greedy: content before separator
+        r'(?:'
+        r'(?=\nA:\s)'  # A: separator → lookahead (keep it!)
+        # r'|' r'\n?\n'  # blank line
+        r'|' r'\n\?\n'  # line with ?
+        r'|' r'\n\?\?\n'  # line with ??
+        r'|' r':::'  # :::
+        r'|' r'::'  # ::
+        r')'
+        r'(?P<QA_A>.*)'  # Answer part, includes A: when present
+        r'$',
+        re.DOTALL
+    )
 
     return p_root, ext, p_QA, QA_tag
 
@@ -220,6 +238,18 @@ def get_d8_hash(s_in):
     return h[-8:]
 
 
+def get_QA_Q_and_A(s_QA):
+    # split s_QA in Q and A
+    m = rgx_QA_split.match(s_QA)
+    if m:
+        QA_Q = m.group("QA_Q").strip()
+        QA_A = m.group("QA_A").strip()
+    else:
+        QA_Q = s_QA.strip()
+        QA_A = ""
+
+    return QA_Q, QA_A
+
 def get_lo_d_QA_normalized(lo_do_QA, file_path, fn, QA_zotero_hash):
     # in s_QA extract and purge html comments and hashes
     lo_do_QA_normalized = []
@@ -236,19 +266,25 @@ def get_lo_d_QA_normalized(lo_do_QA, file_path, fn, QA_zotero_hash):
         s_clean = rgx_QA_SR_hash.sub("", s_clean)
         s_QA    = s_clean.strip()
 
-        # Compute new deterministic hash from original s_QA
+        QA_Q, QA_A = get_QA_Q_and_A(s_QA)
+
+        # Compute new deterministic hash == ID from original s_QA combining QA-text and deck.
         s_deck_and_QA = do_QA["QA_deck"] + ' - ' + s_QA
         QA_d8_hash = get_d8_hash(s_deck_and_QA)
+
 
         # Build normalized dict
         d_new = {
             'path'           : file_path,
             'fn'             : fn,
             "QA_deck"        : do_QA["QA_deck"],
-            "s_QA"           : s_clean,
+            "QA"             : s_QA,
+            "QA_Q"           : QA_Q,
+            "QA_A"           : QA_A,
             "QA_TimeStamp"   : QA_TimeStamp,
-            "QA_d8_hash"     : QA_d8_hash,
-            "QA_zotero_hash" : QA_zotero_hash
+            "QA_zotero_hash" : QA_zotero_hash,                        # hash of note
+            "QA_d8_hash"     : QA_d8_hash,                            # hash of specific question QA_deck included
+            "QA_ID"          : QA_zotero_hash + '_' + QA_d8_hash      # specific ID of question + deck.
         }
         lo_do_QA_normalized.append(d_new)
 
@@ -568,117 +604,9 @@ def get_lo_qa_entry(file_paths):
 
     return lo_do_QA_entry
 
-    #     # Anki: Deck
-    #     fixed_QA_prefix = "#QA_DECK_"
-    #     lo_QA_deck = get_l_s_QA_deck(content, rgx_QA_DECK, fixed_QA_prefix)
-    #
-    #     # Get from frontmatter: QA_zotero_hash ... unique ID to identify QA.
-    #     metadata        = post.metadata
-    #     QA_zotero_hash  = get_QA_zotero_hash_from_frontmatter(file_path, metadata, post, rgx_QA_SR_hash)
-    #
-    #     continue
-    #     return
-    #
-    #     # Get QA-text_blocks in note - maybe multiple QA's, hence list.
-    #     lo_s_qa = get_lo_s_QA(content, rgx_QA_pattern)
-    #
-    #     # note may possibly be modified (by inserting QA_zotero_hash to QA)
-    #     modified_content = content
-    #     multiple_matches = len(lo_s_qa) > 1
-    #
-    #     # QA-text_blocks possibly have already QA_zotero_hash -> make list of them
-    #     lo_all_QA_hashes = get_lo_all_QA_hashes(content, rgx_QA_SR_hash)
-    #
-    #     # ???
-    #     # lo_qa_hash = [''] * len(lo_s_qa)
-    #
-    #     # For every QA-text_block
-    #     for idx, s_qa in enumerate(lo_s_qa):
-    #         s_qa_block = get_normalized_s_qa_block(s_qa)
-    #         s_qa_d8_hash_calc = calc_d8_hash(s_qa_block)
-    #         s_qa_d8_hash = rgx_d8_hash.search(s_qa_block)
-    #         if not s_qa_d8_hash or (s_qa_d8_hash != s_qa_d8_hash_calc):
-    #             s_qa_d8_hash = s_qa_d8_hash_calc
-    #
-    #             if multiple_matches:
-    #                 candidate_idx = idx
-    #                 QA_hash_idx = f'{QA_zotero_hash}_{candidate_idx:03d}'
-    #                 while QA_hash_idx in lo_all_QA_hashes:
-    #                     candidate_idx += 1
-    #                     QA_hash_idx = f'{QA_zotero_hash}_{candidate_idx:03d}_{s_qa_d8_hash}'
-    #
-    #                 insert_str = f'({QA_hash_idx}_{s_qa_d8_hash})\n'
-    #             else:
-    #                 insert_str = f'({QA_zotero_hash}_{s_qa_d8_hash})\n'
-    #
-    #             modified_content = re.sub(
-    #                 rf'({s_qa_block})',
-    #                 rf'\1{insert_str}',
-    #                 modified_content,
-    #                 count=1
-    #             )
-    #             # modify A: attaching index (oder hash von s_qa_block?)
-    #             # lo_s_qa[idx][0] = lo_s_qa[idx][0] + '\n' + insert_str
-    #             s_qa_new = (lo_s_qa[idx][0], lo_s_qa[idx][1] + '\n' + insert_str)
-    #             lo_s_qa[idx] = s_qa_new
-    #             # lo_qa_hash[idx-1] = QA_zotero_hash
-    #
-    #     orig_dir = os.path.dirname(file_path)
-    #     base_name = os.path.basename(file_path)
-    #
-    #     if base_name.startswith(fn_prefix):
-    #         new_filename = base_name
-    #     else:
-    #         new_filename = fn_prefix + base_name
-    #
-    #     new_file_path = os.path.normpath(os.path.join(orig_dir, new_filename))
-    #
-    #     fm_text = frontmatter.dumps(post)
-    #     split_index = fm_text.find('---', 3)
-    #     if split_index == -1:
-    #         frontmatter_header = fm_text
-    #     else:
-    #         frontmatter_header = fm_text[:split_index + 3]
-    #
-    #     full_new_content = frontmatter_header + '\n' + modified_content
-    #
-    #     if os.path.exists(new_file_path):
-    #         if not os.path.isfile(new_file_path):
-    #             return False
-    #         with open(new_file_path, 'r', encoding='utf-8') as new_f:
-    #             new_content = new_f.read()
-    #
-    #         differ  = difflib.Differ()
-    #         delta_x = list(differ.compare(new_content.splitlines(), full_new_content.splitlines()))
-    #         delta   = "\n".join(delta_x)
-    #         if new_content == full_new_content:
-    #             print(f"File identical, skipping overwrite: {new_file_path}")
-    #         else:
-    #             with open(new_file_path, 'w', encoding='utf-8') as f_new:
-    #                 f_new.write(full_new_content)
-    #             print(f"File updated: {new_file_path}")
-    #         if new_file_path in file_paths:
-    #             file_paths.remove(new_file_path)
-    #     else:
-    #         with open(new_file_path, 'w', encoding='utf-8') as f_new:
-    #             f_new.write(full_new_content)
-    #         print(f"File written: {new_file_path}")
-    #
-    #     for s_QA in lo_s_qa:
-    #         for QA_deck in lo_QA_deck:
-    #             s_qa = re.search(rgx_QA_SR_hash, s_QA[1])
-    #             QA_zotero_hash = s_qa.group(0) if s_qa else ''
-    #             qa_entry = {
-    #                 'QA_deck': QA_deck,
-    #                 'QA_zotero_hash': QA_zotero_hash,
-    #                 's_QA': s_QA,
-    #                 # 'path': file_path,
-    #                 'path': fn,
-    #             }
-    #             lo_qa_entry.append(qa_entry)
-    # return lo_qa_entry
 
 def get_lo_qa_card(text):
+    # get all entries in Spaced Repetition obsidian note.
     lo_flashcard = []
 
     # Split s_text into blocks by lines starting with #flashcards (keep markers)
@@ -731,7 +659,6 @@ def get_lo_qa_card(text):
                 continue
 
             # Skip if no known format matched
-
     return lo_flashcard
 
 
@@ -777,11 +704,10 @@ def main():
     lo_qa_entry.extend(get_lo_qa_entry(all_files))
 
     # Print result
-    print("Total QA entries:", len(lo_qa_entry))
-    pprint(lo_qa_entry)
-    print("Total QA entries:", len(lo_qa_entry))
+    # pprint(lo_qa_entry)
+    # print("Total QA entries:", len(lo_qa_entry))
 
-    # get list of all QA's in QA-files (flashcard)
+    # get list of all QA's in QA-files (flashcard-notes / (anki - nodes))
     # lo_qa_card  = get_lo_qa_card(rgx_QA_SR_hash, p_QA, QA_tag)
 
     lo_p_fn_qa = []
@@ -801,6 +727,8 @@ def main():
             qa_file_text = f.read()
             lo_qa_card  = get_lo_qa_card(qa_file_text)
             pass
+
+    pprint(lo_qa_card)
 
 
     # all_files   = find_files_with_extension(p_root, ext)
