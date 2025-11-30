@@ -668,9 +668,8 @@ def compose_and_write_atomic_note_summary(note_summary, note_source, idx, l_p_fn
 
     # get s_note_source_citekey for atomic s_content
     word_count = get_wc(s_content)
-    d_frontmatter = compose_note_frontmatter(note_summary.s_content, note_source.d_frontmatter,
-                                             s_summary_zotero_hash, word_count,
-                                             s_note_title)
+    d_frontmatter = compose_note_frontmatter(note_summary.s_content, note_source.d_frontmatter, s_summary_zotero_hash,
+                                             word_count, s_note_title)
     note_summary.d_frontmatter = d_frontmatter
 
     if b_do_write and note_summary.s_content:
@@ -774,9 +773,8 @@ def compose_and_write_atomic_note_annotation(note_source, l_summary_tags, idx, s
 
     # get s_note_source_citekey for atomic s_content
     word_count = get_wc(s_content)
-    d_frontmatter = compose_note_frontmatter(note_annotation.s_content, note_source.d_frontmatter,
-                                             s_annotation_zotero_hash, word_count,
-                                             s_note_title)
+    d_frontmatter = compose_note_frontmatter(note_annotation.s_content, note_source.d_frontmatter, s_annotation_zotero_hash,
+                                             word_count, s_note_title)
 
     note_annotation.d_frontmatter = d_frontmatter
 
@@ -1167,6 +1165,13 @@ if __name__ == '__main__':
     if cnt_notes_written:
         backup_note_source_with_timestamp(p_fn_note_source)
         # backup_note_source(p_fn_note_source)
+
+# ToDo:
+#   Was ist >zotero_hash< genau? Wert kommt jedenfalls nicht von zotero.
+#   Ist evtl ein hash eines Textes einer annotation, der berechnet wird, um neuere Versionen von bestehenden zu unterscheiden??
+#   Aber es gibt ja den >content_hash< ?
+#   Am besten umbenennen >annotation_text_hash< ?
+
 
 # nb:
 #  pip freeze > requirements.txt
