@@ -51,25 +51,22 @@ def load_config(ini_path):
     QA_tag   = config['DEFAULT']['QA_tag']
 
     rgx_QA_exclude   = re.compile(config['DEFAULT']['rgx_QA_exclude'], re.MULTILINE | re.DOTALL)
-    # rgx_QA_pattern   = re.compile(config['DEFAULT']['rgx_QA_pattern'], re.MULTILINE | re.DOTALL)
-    # rgx_QA_SR_hash   = re.compile(config['DEFAULT']['rgx_QA_SR_hash'])
     rgx_QA_DECK      = re.compile(config['DEFAULT']['rgx_QA_DECK'], re.MULTILINE | re.DOTALL)
     rgx_d8_hash      = re.compile(config['DEFAULT']['rgx_d8_hash'], re.MULTILINE | re.DOTALL)
-    rgx_QA_ID        = re.compile(config['DEFAULT']['rgx_QA_ID'], re.MULTILINE | re.DOTALL)
+    rgx_QA_ID        = re.compile(config['DEFAULT']['str_QA_ID'])
     rgx_html_comment = re.compile(r'<!--.*?-->', re.DOTALL)
 
     lo_startword_raw = ['#flashcards', '#QA_DECK_']
     lo_QA_startword  = [re.escape(sw) for sw in lo_startword_raw]
     s_startword_tail = r"[A-Za-z0-9_/\-\\]{0,25}"
+    lo_stopword_raw  = list(lo_startword_raw).append(['Quelle: '])
 
-    lo_stopword_raw = list(lo_startword_raw)
-    lo_stopword_raw.append(['Quelle: '])
+    rgx_QA_startword = r"(?:%s)%s" % ("|".join(lo_QA_startword), s_startword_tail)
 
-    rgx_QA_startword           = r"(?:%s)%s" % ("|".join(lo_QA_startword), s_startword_tail)
-    rgx_html_comment           = re.compile(r"<!--.*?-->", re.DOTALL)
-    rgx_QA_SR_hash             = re.compile(r"([A-Z0-9]{8})(?:_(\d{3}))?(?:_(\d{8}))?")
+    rgx_html_comment = re.compile(r"<!--.*?-->", re.DOTALL)
+    rgx_QA_SR_hash   = re.compile(r"([A-Z0-9]{8})(?:_(\d{3}))?(?:_(\d{8}))?")
 
-    QA_lo_start_tag = ["#QA_DECK_", "#flashard_"]
+    QA_lo_start_tag  = ["#QA_DECK_", "#flashard_"]
 
     # Escape each tag so '#' and other characters become literal.
     rgx_QA_lo_start_tag = "|".join(re.escape(tag) + r"[A-Za-z0-9._-]+" for tag in QA_lo_start_tag)  # tag + file-safe chars
@@ -84,10 +81,7 @@ def load_config(ini_path):
     # - block-begin lines as QA_lo_stop_tag (so a new block ends the previous one)
     rgx_QA_lo_stop_tag = "|".join([re.escape(w) for w in QA_lo_stop_tag] + [rgx_QA_lo_start_tag])
 
-    # Regex: line begins with either a stopword or another block begin
-    rgx_QA_lo_stopword = re.compile(rf"^(?:{rgx_QA_lo_stop_tag})", re.MULTILINE)
-
-    # 3. MAIN BLOCK EXTRACTION REGEX
+    # MAIN BLOCK EXTRACTION REGEX
     rgx_QA_block = re.compile(
         rf"""
         (?P<begin> {rgx_QA_block_begin.pattern}   # block starts here
@@ -102,6 +96,7 @@ def load_config(ini_path):
 
     rgx_QA_pattern = rgx_QA_block
 
+    # Split QA in Q and A
     rgx_QA_split = re.compile(
         r'^'
         r'(?P<QA_Q>.*?)'  # non-greedy: content before separator
@@ -117,7 +112,6 @@ def load_config(ini_path):
         r'$',
         re.DOTALL
     )
-
     return p_root, ext, p_QA, QA_tag
 
 
@@ -139,8 +133,6 @@ def get_lo_QA_deck_block(text):
     # ... beginning with tag indicating deck of one or more following QAs.
 
     lo_QA_deck_block = []
-    # matches = list(rgx_QA_block_begin.finditer(text))
-    # matches = list(rgx_QA_block.finditer(text))
     matches = [block.group() for block in rgx_QA_block.finditer(text)]
     if not matches:
         return []
@@ -201,7 +193,7 @@ def get_lo_d_QA(QA_deck_block):
 
 
 def get_d8_hash(s_in):
-    # calcs SHA256 hash of s and returns last 8 characters as string
+    # calcs SHA256 hash of QA_A and returns last 8 characters as string
     h = hashlib.sha256(s_in.encode("utf-8")).hexdigest()
     return h[-8:]
 
@@ -219,24 +211,35 @@ def get_QA_Q_and_A(s_QA):
     return QA_Q, QA_A
 
 def get_QA_ID(QA_A):
-    m = rgx_QA_ID.match(QA_A)
-    QA_ID = None
-    if m:
-        QA_ID = m.group(0)
-        # print("FULL MATCH:", m.group(0))
-        # print("prefix:", m.group("prefix"))
-        # print("z_hash:", m.group("z_hash"))
-        # print("QA_deck_hash:", m.group("QA_deck_hash"))
+    matches = []
 
-    rgx = re.compile(
-        r'(?P<prefix>QA_ID_)'
-        r'(?P<z_hash>[A-Za-z0-9]{8})_'
-        r'(?P<QA_deck_hash>[A-Za-z0-9]{8})'
-    )
-    m = rgx.match(QA_A)
-    if m:
-        QA_ID = m.group(0)
-    return QA_ID
+
+    for m in rgx_QA_ID.finditer(QA_A):
+        qa_string = m.group(0)
+        print("FULL MATCH:", qa_string)
+
+        matches.append({
+            'QA_string': qa_string,
+            'prefix': m.group("prefix"),
+            'z_hash': m.group("z_hash"),
+            'QA_deck_hash': m.group("QA_deck_hash")
+        })
+        return matches[0]['QA_string']
+        break
+    else :
+        return None
+
+def b_test_do_QA(do_QA):
+
+    s_QA_deck    = do_QA["QA_deck"]
+    s_QA         = do_QA["QA"]
+    s_QA_d8_hash = do_QA["QA_d8_hash"]
+
+    s_deck_and_QA            = do_QA["QA_deck"] + ' - ' + s_QA
+    QA_d8_hash = get_d8_hash(s_deck_and_QA)
+    QA_ID = get_QA_ID(s_QA)
+
+    return (QA_d8_hash == s_QA_d8_hash)
 
 def get_lo_d_QA_normalized(lo_do_QA, file_path, fn, QA_zotero_hash):
     # in s_QA extract and purge html comments and hashes
@@ -251,24 +254,27 @@ def get_lo_d_QA_normalized(lo_do_QA, file_path, fn, QA_zotero_hash):
 
         # Purge HTML comments and old hash-like strings
         s_clean = rgx_html_comment.sub("", s_QA)
-        s_clean = rgx_QA_SR_hash.sub("", s_clean)
-        s_QA    = s_clean.strip()
+        # s_clean = rgx_QA_SR_hash.sub("", s_clean)
+        # s_clean = rgx_QA_ID.sub("", s_clean)
+        # s_QA    = s_clean.strip()
+        s_QA    = s_QA.strip()
 
         QA_Q, QA_A = get_QA_Q_and_A(s_QA)
 
         # If there is no "QA_ID" at the end of QA_A
-        if 'ABJFDY5I' in s_QA:
-            pass
         s_deck_and_QA = do_QA["QA_deck"] + ' - ' + s_QA
         QA_d8_hash = get_d8_hash(s_deck_and_QA)
         QA_ID = get_QA_ID(s_QA)
+
+        m_QA_ID = rgx_QA_ID.search(s_QA)
+        QA_ID   = m_QA_ID.group(0) if m_QA_ID else None
+
         if not QA_ID:
             # Compute new deterministic hash == ID from original s_QA combining QA-text and deck.
-            QA_ID = 'QA_ID_' + QA_zotero_hash + '_' + QA_d8_hash  # specific ID of QA + deck.
-        pass
+            QA_ID = '(' + 'QA_ID_' + QA_zotero_hash + '_' + QA_d8_hash + ')'  # specific ID of QA + deck.
 
         # Build normalized dict
-        d_new = {
+        do_QA = {
             'path'           : file_path,        # path
             'fn'             : fn,               # filename
             "QA_deck"        : do_QA["QA_deck"], # deck of QA
@@ -280,9 +286,10 @@ def get_lo_d_QA_normalized(lo_do_QA, file_path, fn, QA_zotero_hash):
             "QA_d8_hash"     : QA_d8_hash,       # hash of specific question QA_deck included
             "QA_ID"          : QA_ID             # specific ID of QA + deck.
                                                  # if >QA_d8_hash< != third part of  >QA_ID<   => >QA< ond/or deck has changed.
-
         }
-        lo_do_QA_normalized.append(d_new)
+
+        if b_test_do_QA(do_QA):
+            lo_do_QA_normalized.append(do_QA)
 
     return lo_do_QA_normalized
 
@@ -369,21 +376,15 @@ def get_lo_all_QA_hashes(content: str, rgx_QA_SR_hash) -> list:
 def get_lo_s_QA(content: str) -> list[str]:
     # from *.md notes get QA. Transform them into a flashcard file (obsidian Spaced Repetition / anki ?)
     if flashcard_sys == 'flashcards':
-        # print(f"rgx_lo_QA_deck: {match.group('rgx_lo_QA_deck')}")
-        # print(f"QA_Question: {match.group('QA_Question')}")
-        # print(f"QA_type: {match.group('QA_type')}")
-        # print(f"QA_Answer: {match.group('QA_Answer')}")
 
         iter_QA_match  = rgx_QA_pattern.finditer(content)
         for QA_match in iter_QA_match:
             if QA_match:
-                s_lo_QA_deck= QA_match.group('rgx_lo_QA_deck')
-                QA_Question = QA_match.group('QA_Question')
-                QA_type     = QA_match.group('QA_type')
-                QA_Answer   = QA_match.group('QA_Answer')
-
-                lo_QA_deck  = s_lo_QA_deck.split(' ')
-                pass
+                s_lo_QA_deck = QA_match.group('rgx_lo_QA_deck')
+                QA_Question  = QA_match.group('QA_Question')
+                QA_type      = QA_match.group('QA_type')
+                QA_Answer    = QA_match.group('QA_Answer')
+                lo_QA_deck   = s_lo_QA_deck.split(' ')
             else:
                 return None
 
@@ -438,7 +439,7 @@ def get_lo_qa_entry_vs_01(file_paths):
         metadata = post.metadata
         QA_SR_hash =  get_QA_zotero_hash_from_frontmatter(file_path, metadata, post, rgx_QA_SR_hash)
 
-        # Get QA-text_blocks in note - maybe multiple QA's, hence list.
+        # Get QA-text_blocks in note - maybe multiple QA'QA_A, hence list.
         lo_s_qa = get_lo_s_QA(content)
 
         # note may possibly be modified (by inserting QA_SR_hash to QA)
@@ -677,7 +678,7 @@ def main():
 
     all_files   = find_files_with_extension(p_root, ext)
 
-    # get list of all QA's in *.md but not in QA-files (flashcard|anki| ...)
+    # get list of all QA'QA_A in *.md but not in QA-files (flashcard|anki| ...)
     lo_qa_entry = []
     lo_qa_entry.extend(get_lo_qa_entry(all_files))
 
@@ -685,7 +686,7 @@ def main():
     # pprint(lo_qa_entry)
     # print("Total QA entries:", len(lo_qa_entry))
 
-    # get list of all QA's in (flashcard- / anki-) QA-files ()
+    # get list of all QA'QA_A in (flashcard- / anki-) QA-files ()
     lo_p_fn_qa = []
     for root, _, files in os.walk(p_QA):
         for fname in files:
