@@ -1,15 +1,17 @@
-import os
-import re
-import io
 import configparser
+import deepdiff
 import difflib
+import frontmatter
+import hashlib
+import io
+import os
+import random
+import re
+
 from os.path import basename
 from pprint import pprint
 from re import split
 
-import frontmatter
-import hashlib
-import random
 
 flashcard_sys = 'anki'
 flashcard_sys = 'flashcards'
@@ -211,12 +213,12 @@ def get_QA_Q_and_A(s_QA):
     return QA_Q, QA_A
 
 def get_QA_ID(QA_A):
+    #
     matches = []
-
 
     for m in rgx_QA_ID.finditer(QA_A):
         qa_string = m.group(0)
-        print("FULL MATCH:", qa_string)
+        # print("get_QA_ID: QA_ID = ", qa_string)
 
         matches.append({
             'QA_string': qa_string,
@@ -225,7 +227,6 @@ def get_QA_ID(QA_A):
             'QA_deck_hash': m.group("QA_deck_hash")
         })
         return matches[0]['QA_string']
-        break
     else :
         return None
 
@@ -599,94 +600,82 @@ def get_lo_qa_entry(file_paths):
     return lo_do_QA_entry
 
 
-def get_lo_qa_card(text, file_path, fn):
+def get_lo_do_QA_flashcard(lo_p_fn_flashcard):
+    # (lo_do_QA_flashcard, text, file_path, fn)
     # get all entries in Spaced Repetition obsidian note.
+    # get >lo_flashcard< == all Q&As
 
     lo_flashcard     = []
     lo_QA_deck_block = []
-    lo_do_QA_card    = []
-
-    # Split s_text into blocks by lines starting with #flashcards (keep markers)
-    lo_block_text = re.split(r'(?=^#flashcards[^\n]*)', text, flags=re.MULTILINE)
-
-    for block_text in lo_block_text:
-        lines = block_text.strip().splitlines()
-        if not lines:
-            continue
-
-        # First line is the deck line (contains #flashcards and tags)
-        deck_line = lines[0]
-        qa_lines  = lines[1:]
-
-        deck_clean = "\n".join(ln for ln in [deck_line] if get_cleaned_line(ln))
-        qa_clean   = "\n".join(ln for ln in qa_lines if get_cleaned_line(ln))
-
-        # get all deck tags
-        lo_QA_deck = re.findall(rgx_QA_startword, deck_clean)
-
-        lo_QA_deck_block.append({
-            "DECK": deck_clean,
-            "QA": qa_clean,
-            "lo_QA_deck": lo_QA_deck
-        })
-
-        # >lo_do_QA_entry_org< == raw QA text block as is (with Timestamp, Anki-, obsidian- ID or similar ...)
-        # Will be cleaned from that. --> >lo_do_QA_card<
-        lo_do_QA_entry_org = []
-        # transform multiple QA textblock in multiple dicts of QA: "QA_deck": ..., "s_QA": ...
-        for QA_deck_block in lo_QA_deck_block:
-            lo_do_QA_entry_org.extend(get_lo_d_QA(QA_deck_block))
-
-    lo_do_QA_card.extend(get_lo_d_QA_normalized(lo_do_QA_entry_org, file_path, fn, QA_zotero_hash = 'flashcar'))
-    return lo_do_QA_card
+    lo_do_QA_flashcard    = []
 
 
-def merge_QA_items(lo_qa_entry, lo_qa_card):
-    # Set of all QA_deck from lo_qa_card
-    so_qa_card_QA_deck = set(qa_card['QA_deck'] for qa_card in lo_qa_card)
-    print("so_qa_card_QA_deck:")
-    pprint.pprint(so_qa_card_QA_deck)
+    # With every file containing flashcard style QAs:
+    for p_fn_flashcard in lo_p_fn_flashcard:
+        with open(p_fn_flashcard, 'r', encoding='utf-8') as f:
+            qa_file_text = f.read()
 
-    # Set of all [QA_deck, QA_SR_hash] pairs where QA_SR_hash is not ''
-    so_qa_card_QA_hash = set(
-        (qa_card['QA_deck'], qa_card['QA_SR_hash'])
-        for qa_card in lo_qa_card if qa_card['QA_SR_hash'] != ''
-    )
-    print("so_qa_card_QA_hash:")
-    pprint.pprint(so_qa_card_QA_hash)
+        # Split s_text into blocks by lines starting with #flashcards (keep markers)
+        lo_block_text = re.split(r'(?=^#flashcards[^\n]*)', qa_file_text, flags=re.MULTILINE)
 
-    lo_new_qa_card = []
+        # file may contain more than one QA blocks.
+        # Block == one or more decks on first line
+        #          followed by one or more QA that may be on one or more lines.
+        for block_text in lo_block_text:
+            lines = block_text.strip().splitlines()
+            if not lines:
+                continue
 
-    for qa_entry in lo_qa_entry:
-        qa_pair = (qa_entry['QA_deck'], qa_entry['QA_SR_hash'])
-        if qa_pair not in so_qa_card_QA_hash:
-            new_qa_card = {
-                'QA_deck': qa_entry['QA_deck'],
-                's_QA': qa_entry['s_QA'],
-                'QA_SR_hash': qa_entry['QA_SR_hash']
-            }
-            lo_new_qa_card.append(new_qa_card)
+            # First line is the deck line (contains #flashcards and tags)
+            deck_line = lines[0]
+            # QA - lines:
+            qa_lines  = lines[1:]
 
-    # print("\nlo_new_qa_card:")
-    # pprint.pprint(lo_new_qa_card)
-    return lo_new_qa_card
+            deck_clean = "\n".join(ln for ln in [deck_line] if get_cleaned_line(ln))
+            qa_clean   = "\n".join(ln for ln in qa_lines if get_cleaned_line(ln))
+
+            # get all deck tags
+            lo_QA_deck = re.findall(rgx_QA_startword, deck_clean)
+
+            lo_QA_deck_block.append({
+                "DECK": deck_clean,
+                "QA": qa_clean,
+                "lo_QA_deck": lo_QA_deck
+            })
+
+            # >lo_do_QA_entry_org< == raw QA text block as is (with Timestamp, Anki-, obsidian- ID or similar ...)
+            # Will be cleaned from that. --> >lo_do_QA_flashcard<
+            lo_do_QA_entry_org = []
+            # transform multiple QA textblock in multiple dicts of QA: "QA_deck": ..., "s_QA": ...
+            for QA_deck_block in lo_QA_deck_block:
+                lo_do_QA_entry_org.extend(get_lo_d_QA(QA_deck_block))
+
+            # file_path = p_fn_flashcard
+            # fn = os.path.basename(file_path)
+
+            lo_do_QA_flashcard.extend(get_lo_d_QA_normalized(lo_do_QA_entry_org, file_path = p_fn_flashcard, fn = os.path.basename(p_fn_flashcard), QA_zotero_hash = 'flashcar'))
+    return lo_do_QA_flashcard
 
 
-def main():
-    ini_path = 'tac.ini'
-    p_root, ext, p_QA, QA_tag = load_config(ini_path)
+def merge_QA_items(lo_do_qa_entry, lo_do_QA_flashcard):
+    # Get list of all QA from lo_do_QA_flashcard
+    lo_QA_out    = list(lo_do_QA_flashcard)
+    lo_QA_common = list()
+    for qa_entry in lo_do_qa_entry:
+        for do_QA_flashcard in lo_do_QA_flashcard:
+            diff = deepdiff.DeepDiff(qa_entry, do_QA_flashcard, ignore_order=True)
+            if diff:
+                lo_QA_out.append(qa_entry)
+            else:
+                lo_QA_common.append(qa_entry)
 
-    all_files   = find_files_with_extension(p_root, ext)
+    # pprint(lo_QA_out)
+    pprint(lo_QA_common)
+    return lo_QA_out
 
-    # get list of all QA'QA_A in *.md but not in QA-files (flashcard|anki| ...)
-    lo_qa_entry = []
-    lo_qa_entry.extend(get_lo_qa_entry(all_files))
 
-    # Print result
-    # pprint(lo_qa_entry)
-    # print("Total QA entries:", len(lo_qa_entry))
-
-    # get list of all QA'QA_A in (flashcard- / anki-) QA-files ()
+def get_lo_p_fn_flashcard(QA_tag, p_QA):
+    # return list of path of every *.md file that contains  Q&A's in flashcard (== Spaced Repetition) format.
     lo_p_fn_qa = []
     for root, _, files in os.walk(p_QA):
         for fname in files:
@@ -696,18 +685,37 @@ def main():
                     first_line = f.readline()
                     if first_line.startswith(QA_tag):
                         lo_p_fn_qa.append(p_fn)
+    return lo_p_fn_qa
 
-    lo_qa_card = []
-    for p_fn_qa in lo_p_fn_qa:
-        with open(p_fn_qa, 'r', encoding='utf-8') as f:
-            qa_file_text = f.read()
-            lo_qa_card.extend(get_lo_qa_card(qa_file_text, p_fn_qa, basename(p_fn_qa)))
-            pass
 
-    pprint(lo_qa_card)
-    print("Total QA entries:", len(lo_qa_card))
 
-    # lo_qa_card_updated = merge_QA_items(lo_qa_entry, lo_qa_card)
+def main():
+    ini_path = 'tac.ini'
+    p_root, ext, p_QA, QA_tag = load_config(ini_path)
+
+    all_files   = find_files_with_extension(p_root, ext)
+
+    # get >lo_do_QA_entry< == list of all QA in *.md but not in QA-files (flashcard|anki| ...)
+    lo_do_QA_entry = []
+    lo_do_QA_entry.extend(get_lo_qa_entry(all_files))
+
+    # pprint(lo_do_QA_entry)
+    # print("Total QA entries:", len(lo_do_QA_entry))
+
+    # get >lo_p_fn_flashcard< == files that contain Q&As in flashcard (== Spaced Repetition) format
+    lo_p_fn_flashcard = get_lo_p_fn_flashcard(QA_tag, p_QA)
+
+    # get >lo_do_QA_flashcard< == all Q&A as list of dict of Q&A
+    lo_do_QA_flashcard = []
+    lo_do_QA_flashcard.extend(get_lo_do_QA_flashcard(lo_p_fn_flashcard))
+
+    # pprint(lo_do_QA_flashcard)
+    # print("Total QA entries:", len(lo_do_QA_flashcard))
+
+    lo_do_QA_flashcard_updated = merge_QA_items(lo_do_QA_entry, lo_do_QA_flashcard)
+    pprint(lo_do_QA_flashcard_updated)
+    print("Total QA entries:", len(lo_do_QA_flashcard_updated))
+
 
 if __name__ == "__main__":
     main()
