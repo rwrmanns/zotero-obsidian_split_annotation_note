@@ -901,4 +901,5 @@ def main():
     write_flashcard_file(lo_do_QA_merged, p_QA = p_QA, fn='flashcards.md')
 
 if __name__ == "__main__":
+    #main
     main()
