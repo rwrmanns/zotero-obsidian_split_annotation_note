@@ -210,7 +210,7 @@ def get_pagenumber_headertext(s_text):
         return pagenum, rest
         # return f"{rest} [{pagenum}]"
     else:
-        return '', rest  # Return unchanged if pattern not found
+        return '', s_text  # Return unchanged if pattern not found
 
 
 def get_text_block(text: str, pattern_begin: str, pattern_end: str) -> Optional[str]:
@@ -272,7 +272,7 @@ def merge_without_duplicates(l_word_1, l_word_2):
         return sorted sum of lists
     """    
     set_word_1 = set(l_word_1)
-    # Remove items from l_word_2 that are also in l_word_1
+    # Remove lo_do_QA from l_word_2 that are also in l_word_1
     filtered_l_word_2 = [word for word in l_word_2 if word not in set_word_1]
     # Combine l_word_1 and the filtered l_word_2
     result = set_word_1 | set(filtered_l_word_2)
@@ -540,11 +540,11 @@ def do_write_atomic_note(note_source, l_p_fn_note, cnt_notes_written) -> int :
             if b_hashes_identical:
                 result = 'ok'
             else:
-                # Here's the problem: there are two conflicting versions of same note:
+                # Here'QA_A the problem: there are two conflicting versions of same note:
                 # the new >note_source< (from note_zotero) and >note_fs< (already written to file system).
                 # Prove: >content_hash_source< in >note_fs<  differs from the content has of new >note_source<
                 #
-                # It's not possible to decide which of these conflicting versions is the valid one.
+                # It'QA_A not possible to decide which of these conflicting versions is the valid one.
                 # => both of them have to be preserved.
                 # => 1. keep  >note_source_fs< unchanged and with unchanged filename.
                 #    2. write >s_content<    to fs with filename with flag '_SOURCE'
@@ -1046,7 +1046,7 @@ Die Ursprungs- 'gesamt' obsidian_zotero-s_content mit allen Einzelzitaten hat fo
 
     ###### 24Y6D63Q
     ## These_24Y6D63Q
-    lorem ipsum ... [@bleasePaternalismus2016] [(p. 29)](zotero://open-pdf/library/items/4TCCEDY7?page=29&annotation=24Y6D63Q)
+    lorem ipsum ... [@bleasePaternalismus2016] [(p. 29)](zotero://open-pdf/library/lo_do_QA/4TCCEDY7?page=29&annotation=24Y6D63Q)
     %% Annotation_24Y6D63Q: annotatedText %%
 
     ### Kommentar
@@ -1176,7 +1176,7 @@ if __name__ == '__main__':
 # nb:
 #  pip freeze > requirements.txt
 #  .
-#  find . -name '*.md' -exec sed -i -e 's/string_111/string_222/g' {} \;
+#  find . -name '*.md' -exec sed -i -e 'QA_A/string_111/string_222/g' {} \;
 #  .
 #  >san.py<  transform in *.exe
 #       >_ pip install pyinstaller
