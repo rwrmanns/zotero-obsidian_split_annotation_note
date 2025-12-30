@@ -1,13 +1,45 @@
 '''
-# tac == _T_ransfer (to)  _A_nki _C_ards  ... but connections to anki did not work => Spaced Repetition
-# vs 1.xx:  _without_ connecting to anki, but using Spaced Repetition obsidian plugin.
+tac == _T_ransfer (to)  _A_nki _C_ards  ...
+... but connections to anki did not work, so the Spaced Repetition version was programmed.
 
+vs 1.xx:  _without_ connecting to anki, but using Spaced Repetition obsidian plugin.
 
-This script serves to extract QA text-blocks in obsidian files to be used in flashcards
-(or to be transfered to anki (not yet realized)).
+This script serves to extract QA text-blocks in obsidian files to be used in Spaced Repetition flashcards
+(aka SR-plugin) (or to be transfered to anki (not yet realized)).
+
+Script scans obsidian notes for QA-text blocks and transfers them into specific obsidian flashcard notes,
+that can be used to generate flashcards by obsidian plugin >Spaced Repetition< or by anki (to realize).
+The SR-plugin adds certain informations to the entries, to realize the repetition process.
+
+The paths pf the obsidian notes are configured in >tac.ini<
+
+QA-text blocks begin with a specific tag (QA-tag) followed by a Question - Answer section.
+
+Script checks if QA-text blocks already transfered, if not it changes the tag to the SR-format and adds the block.
+Every QA-text block gets a individual hash value >QA_ID<, specific of QA-Text, file origin and QA-tag.
+The filename of obsidian note is added.
+
+Configuration of SR-plugin:
+- let the default flashcard tag >#flashcards< unchanged.
 
 github repository:
     https://github.com/rwrmanns/zotero-obsidian_split_atomic_notes
+
+
+do_QA = {
+    'path'           : file_path,        # f path
+    'fn_QA_SR'       : fn,               # filename
+    "QA_deck"        : do_QA["QA_deck"], # deck of QA
+    "QA"             : s_QA,             # complete string of QA
+    "QA_Q"           : QA_Q,             # Question
+    "QA_A"           : QA_A,             # Answer
+    "QA_TimeStamp"   : QA_TimeStamp,     # timestamp of Spaced Repetition obsidian plugin
+    "QA_zotero_hash" : QA_zotero_hash,   # hash of note (from frontmatter - but where does it come from ??)
+    "QA_d8_hash"     : QA_d8_hash,       # hash of specific question QA_deck included
+    "QA_ID"          : QA_ID             # specific ID of QA + deck.
+                                         # if >QA_d8_hash< != third part of  >QA_ID<   => >QA< ond/or deck has changed.
+}
+
 '''
 
 
@@ -20,6 +52,7 @@ import io
 import os
 import random
 import re
+import sys
 import zoneinfo
 
 from collections import Counter
@@ -37,14 +70,21 @@ flashcard_sys = 'anki'
 flashcard_sys = 'spaced_repetition'
 
 p_root        = ''
+lo_subdir     = []
 ext           = ''
-p_QA          = ''
+p_fn_QA       = ''
+
+SR_tag        = ''
 QA_tag        = ''
 
-fn_SR_QA      = '' # fn of Spaced_Repetition flashcards File  (from >tac.ini<)
-fn_anki_QA    = '' # fn of Anki              flashcards File  (from >tac.ini<)
+cnt_new_QA    = 0
 
-fn_prefix = '_NEW_'
+fn_QA_SR      = '' # fn_QA_SR of Spaced_Repetition specific flashcards File  (from >tac.ini<)
+fn_anki_QA    = '' # fn_QA_SR of Anki              specific flashcards File  (from >tac.ini<)
+
+fn_prefix     = '_NEW_'
+
+QA_separator  = '...'
 
 rgx_html_comment = re.compile(r'<!--.*?-->', re.DOTALL)
 
@@ -73,7 +113,7 @@ def get_rgx_QA_block():
     keywords_pattern = '|'.join(keywords)
 
     # 2. Define the Regex Parts
-    # Start Tag: Keywords + optional extension (starting with _ or / per your examples)
+    # Start Tag: Keywords + optional ext (starting with _ or / per your examples)
     # We use (?:...) for non-capturing groups to keep the result clean
     rgx_start = fr"(?:{keywords_pattern})(?:[_\/][\w\/]{{0,30}})?"
 
@@ -107,21 +147,28 @@ def load_config(ini_path):
     global rgx_norm_QA_deck
 
     global p_root
+    global lo_subdir
     global ext
-    global p_QA
+    global p_fn_QA
+    global SR_tag
     global QA_tag
-    global fn_SR_QA
+    global fn_QA_SR
     global fn_anki_QA
 
     config = configparser.ConfigParser()
     config.read(ini_path)
 
-    p_root     = config['DEFAULT']['p_root']
-    ext        = config['DEFAULT']['ext']
-    p_QA       = config['DEFAULT']['p_QA']
-    QA_tag     = config['DEFAULT']['QA_tag']
-    fn_SR_QA   = config['DEFAULT']['fn_SR_QA']
-    fn_anki_QA = config['DEFAULT']['fn_anki_QA']
+
+    p_root      = config['DEFAULT']['p_root']
+    subdirs_raw = config['DEFAULT']['lo_subdir']
+    lo_subdir   = [subdir.strip() for subdir in subdirs_raw.split(",")]
+
+    ext         = config['DEFAULT']['ext']
+    p_fn_QA     = config['DEFAULT']['p_fn_QA']
+    SR_tag      = config['DEFAULT']['SR_tag']
+    QA_tag      = config['DEFAULT']['QA_tag']
+    fn_QA_SR    = config['DEFAULT']['fn_QA_SR']
+    fn_anki_QA  = config['DEFAULT']['fn_anki_QA']
 
     rgx_QA_exclude   = re.compile(config['DEFAULT']['rgx_QA_exclude'], re.MULTILINE | re.DOTALL)
     rgx_QA_DECK      = re.compile(config['DEFAULT']['rgx_QA_DECK'], re.MULTILINE | re.DOTALL)
@@ -194,11 +241,10 @@ def load_config(ini_path):
 
     rgx_flashcard_backup = re.compile(
         r"""
-        \.                # literal dot
-        \d{4}-\d{2}-\d{2} # YYYY-MM-DD
-        (?:_\d{2})?       # optional _hh (two digits)
-        (?:_\d{2})?       # optional _mm (two digits)
-        $                 # end of string
+        \.                        # literal dot
+        \d{4}-\d{2}-\d{2}         # YYYY-MM-DD
+        (?:_\d{2}-\d{2}-\d{2})?   # optional _hh-mm-ss (two digits)
+        $                         # end of string
         """,
         re.VERBOSE,
     )
@@ -211,7 +257,7 @@ def load_config(ini_path):
     # rgx_d8_hash matches an 8 digit hash preceded by '_'
     rgx_d8_hash = r"_\d{8}"
 
-    return p_root, ext, p_QA, QA_tag
+    return p_root, ext, p_fn_QA, SR_tag
 
 
 def remove_font_color_tags(text):
@@ -300,11 +346,13 @@ def get_lo_QA_deck_block(text):
     return lo_QA_deck_block
 
 
-def get_lo_d_QA(QA_deck_block):
-    # >QA_deck_block< == line containing one or more >deck< entries followed by QA text without >deck< entries.
-    # Transform textblock into cartesian product (lo of dict): item == every deck with every QA_text.
+def get_lo_d_QA(QA_deck_block ):
+    # >QA_deck_block< == block of text beginning with one or more tags (== >deck< entries)
+    #    followed by one or more QA-text without >deck< entries.
+    # Transform >QA_deck_block< into cartesian product (lo of dict): item == every deck with every QA_text.
 
     QA_text, lo_QA_deck = QA_deck_block["QA"], QA_deck_block["lo_QA_deck"]
+    # print(f'{QA_text = }')
     positions = [m.start() for m in re.finditer(r"^Q: ", QA_text, re.MULTILINE)]
     if not positions:
         return []
@@ -391,7 +439,6 @@ def get_normalized_QA_deck(s_QA_deck):
 
 
 def get_normalized_lo_d_QA(lo_do_QA, file_path, fn, QA_zotero_hash):
-    # in s_QA:
     # extract and purge html comments and hashes
     # normalize Spaced Repetition tag
 
@@ -435,14 +482,14 @@ def get_normalized_lo_d_QA(lo_do_QA, file_path, fn, QA_zotero_hash):
 
         # Build normalized dict
         do_QA = {
-            'path'           : file_path,        # path
-            'fn'             : fn,               # filename
+            'path'           : file_path,        # f path
+            'fn_QA_SR'       : fn,               # filename
             "QA_deck"        : do_QA["QA_deck"], # deck of QA
             "QA"             : s_QA,             # complete string of QA
             "QA_Q"           : QA_Q,             # Question
             "QA_A"           : QA_A,             # Answer
             "QA_TimeStamp"   : QA_TimeStamp,     # timestamp of Spaced Repetition obsidian plugin
-            "QA_zotero_hash" : QA_zotero_hash,   # hash of note (from frontmatter but where does it come from ??)
+            "QA_zotero_hash" : QA_zotero_hash,   # hash of note (from frontmatter - but where does it come from ??)
             "QA_d8_hash"     : QA_d8_hash,       # hash of specific question QA_deck included
             "QA_ID"          : QA_ID             # specific ID of QA + deck.
                                                  # if >QA_d8_hash< != third part of  >QA_ID<   => >QA< ond/or deck has changed.
@@ -473,13 +520,34 @@ def calc_d8_hash(s_qa_block) -> str:
     return d8_hash_calc
 
 
-def find_files_with_extension(root, extension):
-    matches = []
-    for current_dir, _, filenames in os.walk(root):
-        for fname in filenames:
-            if fname.endswith(extension):
-                matches.append(os.path.normpath(os.path.join(current_dir, fname)))
-    return matches
+def get_lo_fn_path_with_extension(root, lo_subdir, ext):
+
+    def add_path(ext, lo_fn_pth, root_path):
+        # print(f'>add_path():< {root_path = } ')
+        # 'C:\\Users\\rh\\Meine Ablage\\obsidian_rh_GoogleDrive\\02_Notes_zotero_Annotations_anki\\bleasePaternalismus2016__Annotations__OK\\01_Notes_rh'
+        # 'C:\\Users\\rh\\Meine Ablage\\obsidian_rh_GoogleDrive\\02_Notes_zotero_Annotations_anki\\bleasePaternalismus2016__Annotations__OK\\01_Notes_rh'
+        list_dir = os.listdir(os.path.normpath(root_path))
+        # pprint(list_dir)
+        for current_dir, _, filenames in os.walk(root_path):
+            for fname in filenames:
+                if fname.endswith(ext):
+                    path_fn = os.path.normpath(os.path.join(current_dir, fname))
+                    lo_fn_pth.append(path_fn)
+                    # print(f'{path_fn=}')
+
+    lo_fn_pth = []
+    print(f'>get_lo_fn_path_with_extension()<: {root = }')
+    if lo_subdir:
+        for subdir in lo_subdir:
+            root_path = os.path.join(root, subdir)
+            # print(f' {subdir =    } \n {root_path = }')
+            print(f'  {subdir = }')
+            add_path(ext, lo_fn_pth, root_path)
+    else:
+        add_path(ext, lo_fn_pth, root)
+
+    print()
+    return lo_fn_pth
 
 
 def get_l_s_QA_deck(content, fixed_QA_prefix):
@@ -564,7 +632,7 @@ def get_lo_s_QA(content: str) -> list[str]:
 
 
 def get_lo_QA_file(file_paths):
-    # return list of file_paths that contain QA - text blocks.
+    # return list of lo_fn_note that contain QA - text blocks.
     lo_do_QA_files = []
     for file_path in file_paths:
         fn = os.path.basename(file_path)
@@ -582,7 +650,7 @@ def get_lo_QA_file(file_paths):
             continue
 
         d_QA_file = dict()
-        d_QA_file['fn']      = fn
+        d_QA_file['fn_QA_SR']      = fn
         d_QA_file['path']    = file_path
         d_QA_file['post']    = post
         d_QA_file['content'] = content
@@ -590,18 +658,20 @@ def get_lo_QA_file(file_paths):
     return lo_do_QA_files
 
 
-def get_lo_qa_entry(file_paths):
-    # return list of all QA-entries in note: qa_entry.QA, possibly qa_entry.QA_zotero_hash, qa_entry.QA_deck
-    # >lo_do_QA_file< list of all files with QA section.
-    lo_do_QA_file      = get_lo_QA_file(file_paths)
+def get_lo_QA_entry(lo_fn_note):
+    # return list of all QA-entries of obsidian notes that are in >lo_fn_note<:
+    #  ? qa_entry.QA, possibly qa_entry.QA_zotero_hash, qa_entry.QA_deck ?
+
+    # >lo_do_QA_note< list of all files with QA section.
+    lo_do_QA_note      = get_lo_QA_file(lo_fn_note)
 
     lo_do_QA_entry     = []
-    for do_QA_file in lo_do_QA_file:
+    for do_QA_note in lo_do_QA_note:
         # QA == Question-Answer text .
-        file_path      = do_QA_file['path']
-        fn             = do_QA_file['fn']
-        content        = do_QA_file['content']
-        post           = do_QA_file['post']
+        file_path      = do_QA_note['path']
+        fn             = do_QA_note['fn_QA_SR']
+        content        = do_QA_note['content']
+        post           = do_QA_note['post']
 
         metadata       = post.metadata
         QA_zotero_hash = get_QA_zotero_hash_from_frontmatter(file_path, metadata, post, rgx_QA_SR_hash)
@@ -618,28 +688,36 @@ def get_lo_qa_entry(file_paths):
 
         # normalize every d_QA and add hash of Text of QA
         # Normalize and clean QA from Timestamp of Spaced Repetition and ID of tac.py and ...
-        # ... add: file_path, fn, QA_zotero_hash
+        # ... add: file_path, fn_QA_SR, QA_zotero_hash
         lo_do_QA_entry.extend(get_normalized_lo_d_QA(lo_do_QA_entry_org, file_path, fn, QA_zotero_hash))
+
     return lo_do_QA_entry
 
 
-def get_lo_do_QA_flashcard(lo_p_fn_flashcard):
-    # get all entries in Spaced Repetition obsidian note.
+def get_lo_do_QA_SR(lo_p_fn_SR):
+    # get all entries in Spaced Repetition obsidian note == QAs already usable by SR
     # get >lo_flashcard< == all Q&As
 
+    # get FILE NAMES: >lo_fn_SR< == FILES that contain Q&A-entries in _Spaced Repetition_ format.
+    # Only this/these files are used by the Spaced Repetition Plugin in Obsidian to define flashcards.
+    lo_fn_SR = get_lo_fn_SR()  # List of _FILE names_
+
     lo_flashcard       = []
-    lo_QA_deck_block   = []
-    lo_do_QA_flashcard = []
+    lo_QA_deck_block   = []   # list of dict with:
+    lo_do_QA_SR        = []
     lo_do_QA_entry_org = []
 
-    # With every file containing flashcard style QAs:
-    for p_fn_flashcard in lo_p_fn_flashcard:
+    # With every _file_ containing flashcard style QAs:
+    for p_fn_flashcard in lo_p_fn_SR:
         with open(p_fn_flashcard, 'r', encoding='utf-8') as f:
             qa_file_text = f.read()
 
+        # print(p_fn_flashcard)
+        pass
+
         qa_file_text = remove_font_color_tags(qa_file_text)
 
-        # Split s_text into blocks by lines starting with #flashcards (keep markers)
+        # Split s_text into blocks by lines starting with '#flashcards'
         lo_block_text = re.split(r'(?=^#flashcards[^\n]*)', qa_file_text, flags=re.MULTILINE)
 
         # file may contain more than one QA blocks.
@@ -653,62 +731,133 @@ def get_lo_do_QA_flashcard(lo_p_fn_flashcard):
             # First line is the deck line (contains #flashcards and tags)
             deck_line = lines[0]
             # QA - lines:
-            qa_lines  = lines[1:]
+            txt_lines  = lines[1:]
+            # >txt_lines< contain Q&A
+            # followed by QA_separator (global)
+            # followed by fn of obsidian note of origin
+            # followed by QA_ID
+            # followed by timestamp
 
             deck_clean = "\n".join(ln for ln in [deck_line] if get_cleaned_line(ln))
-            qa_clean   = "\n".join(ln for ln in qa_lines if get_cleaned_line(ln))
+            txt_clean  = "\n".join(ln for ln in txt_lines   if get_cleaned_line(ln))
 
             # get all deck tags
             lo_QA_deck = re.findall(rgx_QA_startword, deck_clean)
 
+            qa_lines   = []
+            idx_separ  = 0
+            for idx, line in enumerate(txt_lines):
+                if line == QA_separator:
+                    idx_separ = idx
+                    break
+                else:
+                    qa_lines.append(line)
+
+            qa_clean   = "\n".join(ln for ln in qa_lines if get_cleaned_line(ln))
+
+            fn_QA_SR     = txt_lines[idx_separ + 1],
+            QA_ID        = txt_lines[idx_separ + 2],
+            QA_TimeStamp = txt_lines[idx_separ + 2],
+
             lo_QA_deck_block.append({
-                "DECK": deck_clean,
-                "QA": qa_clean,
-                "lo_QA_deck": lo_QA_deck
+                "lo_QA_deck"   : lo_QA_deck,
+                "DECK"         : deck_clean,
+                "QA"           : qa_clean,
+                "fn_QA_SR"     : fn_QA_SR,
+                "QA_ID"        : QA_ID,
+                "QA_TimeStamp" : QA_TimeStamp,
             })
 
+            # do_QA = {
+            #     'path': file_path,  # f path
+            #     'fn_QA_SR': fn,  # filename
+            #     "QA_deck": do_QA["QA_deck"],  # deck of QA
+            #     "QA": s_QA,  # complete string of QA
+            #     "QA_Q": QA_Q,  # Question
+            #     "QA_A": QA_A,  # Answer
+            #     "QA_TimeStamp": QA_TimeStamp,  # timestamp of Spaced Repetition obsidian plugin
+            #     "QA_zotero_hash": QA_zotero_hash,  # hash of note (from frontmatter - but where does it come from ??)
+            #     "QA_d8_hash": QA_d8_hash,  # hash of specific question QA_deck included
+            #     "QA_ID": QA_ID  # specific ID of QA + deck.
+            #     # if >QA_d8_hash< != third part of  >QA_ID<   => >QA< ond/or deck has changed.
+            # }
+
+
             # >lo_do_QA_entry_org< == raw QA text block as is (with Timestamp, Anki-, obsidian- ID or similar ...)
-            # Will be cleaned from that. --> >lo_do_QA_flashcard<
+            # Will be cleaned from that. --> >lo_do_QA_SR<
             lo_do_QA_entry_org = []
             # transform multiple QA textblock in multiple dicts of QA: "QA_deck": ..., "s_QA": ...
             for QA_deck_block in lo_QA_deck_block:
                 lo_do_QA_entry_org.extend(get_lo_d_QA(QA_deck_block))
 
             # file_path = p_fn_flashcard
-            # fn = os.path.basename(file_path)
+            # fn_QA_SR = os.path.basename(file_path)
+
         if lo_do_QA_entry_org:
-            lo_do_QA_flashcard.extend(get_normalized_lo_d_QA(lo_do_QA_entry_org, file_path = p_fn_flashcard, fn = os.path.basename(p_fn_flashcard), QA_zotero_hash ='flashcar'))
-    return lo_do_QA_flashcard
+            lo_do_QA_SR.extend(get_normalized_lo_d_QA(lo_do_QA_entry_org, file_path = p_fn_flashcard, fn = os.path.basename(p_fn_flashcard), QA_zotero_hash ='flashcar'))
+    return lo_do_QA_SR
 
 
-def get_lo_p_fn_flashcard(QA_tag, p_QA):
+def get_lo_fn_SR():
     # return list of path of every *.md file that contains  Q&A's in flashcard (== Spaced Repetition) format.
+    p_QA     = os.path.join(p_fn_QA, fn_QA_SR)
+    str_p_fn_QA = p_QA.replace("\\\\", "\\")
+    # print(f'p_QA = {str_p_fn_QA}')
     lo_p_fn_qa = []
     for root, _, files in os.walk(p_QA):
+        # print(p_QA)
+        # with open(p_QA, 'r', encoding='utf-8') as f:
         for fname in files:
-            if fname.endswith('.md') and not b_filter_backup_flashcard_file(fname, '.md'):
-                p_fn = os.path.normpath(os.path.join(root, fname))
-                with open(p_fn, 'r') as f:
-                    first_line = f.readline()
-                    if first_line.startswith(QA_tag):
-                        lo_p_fn_qa.append(p_fn)
+            # print(fname)
+            with open(os.path.join(root, fname), 'r', encoding='utf-8') as f:
+                if fname.endswith('.md') and not b_filter_backup_flashcard_file(fname, '.md'):
+                    # print(fname)
+                    p_fn = os.path.normpath(os.path.join(root, fname))
+                    with open(p_fn, 'r') as f:
+                        first_line = f.readline()
+                        if first_line.startswith(SR_tag):
+                            print(f'{fname      = }')
+                            print(f'{first_line = }')
+                            lo_p_fn_qa.append(p_fn)
+    if lo_p_fn_qa:
+        print('>get_lo_fn_SR()<: Spaced Repetition Files:')
+        for ele in lo_p_fn_qa: print('  ', ele)
+    else:
+        print(f'>get_lo_fn_SR()<: NO Spaced Repetition Files found in: \n  {p_QA}')
+        print(f'  expected file:\n  {p_QA}')
+    print()
     return lo_p_fn_qa
 
 
-def get_merge_lo_do_QA(lo_do_qa_entry, lo_do_QA_flashcard):
-    # Make list of all different QA in two lists: lo_do_qa_entry, lo_do_QA_flashcard
-    # Add both lists and then purge duplicates, if any:
+def get_lo_do_QA_merge(lo_do_qa_entry, lo_do_QA_SR):
+    # Add to >lo_do_QA_SR< all items of >lo_do_qa_entry< that are not already present in >lo_do_QA_SR<.
 
-    lo_QA_out = []
+    global cnt_new_QA
+    lo_do_QA_merged = []
 
-    lo_QA_out = lo_do_QA_flashcard + lo_do_qa_entry
-    lo_QA_out = sort_and_clear_lo_do_QA(lo_QA_out)
-    return lo_QA_out
+    # Make a set of all QA_IDs in >lo_do_QA_SR<.
+    # If QA_ID of element of >lo_do_qa_entry< is not present in >lo_do_QA_SR<
+    #   then add it to >lo_do_QA_merged<.
+    so_QA_SR_QA_ID  = set()  # set of all QA_IDs in >lo_do_QA_SR<
+    pass
+    # Add every QA_ID from >lo_do_QA_SR< (== QA_IDs present in SR-file) to set:
+    for do_QA_SR in lo_do_QA_SR:
+        so_QA_SR_QA_ID.add(do_QA_SR["QA_ID"])
+
+    for do_qa_entry in lo_do_qa_entry:
+        if do_qa_entry["QA_ID"] not in so_QA_SR_QA_ID:
+            print ('>>> ', do_qa_entry["fn_QA_SR"])
+            do_qa_entry['QA_deck'] = do_qa_entry['QA_deck'].replace(QA_tag, SR_tag)
+            lo_do_QA_merged.append(do_qa_entry)
+            cnt_new_QA += 1
+
+    # lo_do_QA_merged.extend(lo_do_QA_SR)
+    return sort_and_check_lo_do_QA(lo_do_QA_merged)
 
 def do_p_fn_rename_w_timestamp(lo_p_fn_flashcard, p_QA):
-    # >lo_p_fn_flashcard< == a list of paths and >p_QA< a directory path.
-    # It renames every element >p_fn_flashcard< of >lo_p_fn_flashcard< by adding to the tail of the filename
-    # a string >.YYYY-MM-DD< which is the actual date and keep the extension, which must be >.md<.
+    # >lo_p_fn_SR< == a list of paths and >p_fn_QA< a directory path.
+    # It renames every element >p_fn_flashcard< of >lo_p_fn_SR< by adding to the tail of the filename
+    # a string >.YYYY-MM-DD< which is the actual date and keep the ext, which must be >.md<.
     # If a file with this name already exists add >.YYYY-MM-DD_mm< to it, where 'mm' are minutes.
     tz = zoneinfo.ZoneInfo("Europe/Berlin")
     date_str = datetime.now(tz).strftime("%Y-%m-%d_%H-%M-%S")
@@ -724,7 +873,7 @@ def do_p_fn_rename_w_timestamp(lo_p_fn_flashcard, p_QA):
         #     hrs  = datetime.now(tz).strftime("%H")
         #     mins = datetime.now(tz).strftime("%M")
         #     new_fn = f"{name}.{date_str}_{hrs}_{mins}{ext}"
-        #     new_path = os.path.join(dir_path or p_QA, new_fn)
+        #     new_path = os.path.join(dir_path or p_fn_QA, new_fn)
         #     counter += 1
         #     if counter > 60:
         #         break
@@ -733,25 +882,26 @@ def do_p_fn_rename_w_timestamp(lo_p_fn_flashcard, p_QA):
 
 def b_filter_backup_flashcard_file(p_fn, s_extension):
     # Check if the tail of the filename is a string >.YYYY-MM-DD< or a string  >.YYYY-MM-DD_mm< and
-    # if the filename ends with the extension >s_extension< and returns True if so.
+    # if the filename ends with the ext >s_extension< and returns True if so.
     base, ext = os.path.splitext(p_fn)
     if ext != s_extension:
         return False
-    return rgx_flashcard_backup.search(base) is not None
+    b_result = rgx_flashcard_backup.search(base) is not None
+    return b_result
 
 
 def get_duplicates_by_key(lo_do_QA, key):
     # lo_do_QA: list of dicts
-    # key:   the key you want to check for duplicates, e.g. "QA_ID"
+    # key:      the key you want to check for duplicates, e.g. "QA_ID"
     values = [d[key] for d in lo_do_QA]
     counts = Counter(values)
     return [d for d in lo_do_QA if counts[d[key]] > 1]
 
-def sort_and_clear_lo_do_QA(lo_do_QA_flashcard):
-    # CLears duplicates and sorts by x["QA_ID"]
+def sort_and_check_lo_do_QA(lo_do_QA_flashcard):
+    # Check duplicates and sort by x["QA_ID"]
     if not lo_do_QA_flashcard:
         return None
-    # lo_do_QA_flashcard.sort(key=lambda x: x["QA_ID"])
+
     duplicates = {}
     for i, do in enumerate(lo_do_QA_flashcard):
         qa_id = do["QA_ID"]
@@ -763,18 +913,31 @@ def sort_and_clear_lo_do_QA(lo_do_QA_flashcard):
     # If duplicates found => Error and exit.
     for qa_id, indices in duplicates.items():
         if len(indices) > 1:
-            print('sort_and_clear_lo_do_QA(): ')
-            print(f"Duplicate QA_ID '{qa_id}' at indices: {indices}")
-            lo_do_QA_flashcard = get_duplicates_by_key(lo_do_QA_flashcard, "QA_ID")
-            lo_do_QA_flashcard.sort(key=lambda x: x["QA_ID"])
-
-            pprint (lo_do_QA_flashcard)
-            exit()
+            print('>sort_and_check_lo_do_QA()<: ')
+            print(f"Error: Duplicate QA_ID found.\n")
             break
 
-    # lo_do_QA_flashcard_sorted = lo_do_QA_flashcard.sort(key=lambda x: x["QA_ID"])
-    # lo_do_QA_flashcard_sorted = lo_do_QA_flashcard.sort(key=lambda x: x["QA_ID"])
-    # sorted(words, key=lambda x: len(x))
+    b_exit = False
+    for qa_id, indices in duplicates.items():
+        if len(indices) > 1:
+            print('==========\n')
+            b_exit = True
+            # lo_do_QA_SR = get_duplicates_by_key(lo_do_QA_SR, "QA_ID")
+            # lo_do_QA_SR.sort(key=lambda x: x["QA_ID"])
+
+            QA_ID_old = ''
+            for do_QA_flashcard in lo_do_QA_flashcard:
+                if do_QA_flashcard["QA_ID"] == qa_id:
+                    print(f'{do_QA_flashcard["QA_ID"]      = }')
+                    print(f'{do_QA_flashcard["fn_QA_SR"]   = }')
+                    print(f'{do_QA_flashcard["QA_d8_hash"] = }')
+                    print('----------')
+
+    if b_exit:
+        print('==========\n', flush=True)
+        sys.stdout.flush()
+        exit('>sort_and_check_lo_do_QA()<: exit()')
+
     lo_do_QA_flashcard_sorted = sorted(lo_do_QA_flashcard, key=lambda x: (x["QA_deck"].lower()))
     return lo_do_QA_flashcard_sorted
 
@@ -783,120 +946,127 @@ def get_colorized_string(s_input):
     dark_color = "#494429"
     return f'<font color={dark_color}>' + s_input + '</font>'
 
-def write_flashcard_file(lo_do_QA_merged, p_QA = p_QA, fn = fn_SR_QA):
-    # Check in directory >p_QA< if there is a file >fn<.
-    # reads the file by calling >get_lo_do_QA_flashcard(lo_p_fn_flashcard)< which returns a list of dicts >lo_do_QA_flashcard<.
+def write_QA_SR_file(lo_do_QA_merged, p_QA = p_fn_QA, fn_QA_SR = fn_QA_SR):
+    # Check in directory >p_fn_QA< if there is a file >fn_QA_SR<.
+    # reads the file by calling >get_lo_do_QA_Spaced_Repetition(lo_p_fn_SR)< which returns a list of dicts >lo_do_QA_SR<.
 
-    # When finished the program sorts the list of dictionaries >lo_do_QA_flashcard< using an element of >do_QA_flashcard< with the key >"QA_ID"<.
-    # If >do_QA_flashcard< was b_modified_lo_do_QA_flashcard use >do_p_fn_rename_w_timestamp(lo_p_fn_flashcard, p_QA)< to rename the existing version.
-    # Write every element in >lo_do_QA_flashcard< into the new file separating each element from the ather by adding an empty line.
-    # The dictionary has the elements: 'path', 'fn', "QA_deck", "QA", "QA_Q", "QA_A", "QA_TimeStamp", "QA_zotero_hash", "QA_d8_hash", "QA_ID".
+    # The dictionary has the elements: 'path', 'fn_QA_SR', "QA_deck", "QA", "QA_Q", "QA_A", "QA_TimeStamp", "QA_zotero_hash", "QA_d8_hash", "QA_ID".
+    #
+    # Sorts the list of dictionaries >lo_do_QA_SR< using the dictionary element >"QA_ID"< as key.
+    #
+    # If >do_QA_flashcard< was modified (b_modified_lo_do_QA_flashcard == True):
+    #    use >do_p_fn_rename_w_timestamp(lo_p_fn_SR, p_fn_QA)< to rename the existing version.
+    #
+    # Write every element in >lo_do_QA_SR< into the new file separating each element from the ather by adding an empty line.
     # Use the keys:  "QA_deck", "QA_Q", "QA_A", "QA_ID", "QA_TimeStamp"  in this order.
 
-    if not lo_do_QA_merged:
-        return None
-
-    # Compose the full path >p_fn< of the file,
-    p_fn = os.path.join(p_QA, fn).replace('\\', '/')
+    # Compose the full path >p_fn< of flashcard file; create it if not existing.
+    p_fn = os.path.join(p_QA, fn_QA_SR).replace('\\', '/')
     # Initialize flashcard file if it does not exist:
+    print(f'>write_QA_SR_file()<: created: \n  {p_fn} ')
     if not os.path.exists(p_fn):
         with open(p_fn, 'w') as f:
-            f.write("#flashcards\n")
+            # f.write("#flashcards\n")
+            f.write("")
+            print(f'>write_QA_SR_file()<: created: \n  {p_fn}\n')
+
+    # new QA-entries ?
+    if not lo_do_QA_merged:   # no new QA-entries
+        print(f'>write_QA_SR_file()<: \n  No new QA-entries')
+        return None
 
     # Read the existing flashcard file
-    lo_p_fn_flashcard = [p_fn]
-    lo_do_QA_flashcard = get_lo_do_QA_flashcard(lo_p_fn_flashcard)
+    lo_p_fn_SR = [p_fn]
+    lo_do_QA_SR = get_lo_do_QA_SR(lo_p_fn_SR)
 
-    # The function sorts the list >lo_do_QA_flashcard< of dictionaries >do_QA_flashcard< by the element of >do_QA_flashcard< with the key >"QA_ID"<.
+    # The function sorts the list >lo_do_QA_SR< of dictionaries >do_QA_flashcard< by the element of >do_QA_flashcard< with the key >"QA_ID"<.
     # If there are two or more dictionaries >do_QA_flashcard< with identical value in key >"QA_ID"< then print these values and exit.
-    lo_do_QA_flashcard = sort_and_clear_lo_do_QA(lo_do_QA_flashcard)
+    lo_do_QA_SR = sort_and_check_lo_do_QA(lo_do_QA_SR)
+
     # The function sorts the list >lo_do_QA_merged< of dictionaries >do_QA_flashcard< by the element of >do_QA_flashcard< with the key >"QA_ID"<.
     # If there are two or more dictionaries >do_QA_flashcard< with identical value in key >"QA_ID"< then print these values and exit.
-    lo_do_QA_merged    = sort_and_clear_lo_do_QA(lo_do_QA_merged)
+    lo_do_QA_merged    = sort_and_check_lo_do_QA(lo_do_QA_merged)
 
-    # For every element >do_QA_flashcard_updated< in >lo_do_QA_merged<, which is a list of dictionaries,
-    # the program checks if it is present in >lo_do_QA_flashcard<. If not it appends this element to >lo_do_QA_flashcard<.
+    # For every element >do_QA_merged< in >lo_do_QA_merged<, which is a list of dictionaries, the program
+    #   checks if it is present in >lo_do_QA_SR<. If not it appends this element to >lo_do_QA_SR<.
     b_modified_lo_do_QA_flashcard = False
     # There are QA
     for do_QA_merged in lo_do_QA_merged:
-        if lo_do_QA_flashcard:
-            if not any(d["QA_ID"] == do_QA_merged["QA_ID"] for d in lo_do_QA_flashcard):
-                lo_do_QA_flashcard.append(do_QA_merged)
+        if lo_do_QA_SR:
+            if not any(d["QA_ID"] == do_QA_merged["QA_ID"] for d in lo_do_QA_SR):
+                lo_do_QA_SR.append(do_QA_merged)
                 b_modified_lo_do_QA_flashcard = True
         else:
-            lo_do_QA_flashcard = []
-            lo_do_QA_flashcard.append(do_QA_merged)
+            lo_do_QA_SR = []
+            lo_do_QA_SR.append(do_QA_merged)
             b_modified_lo_do_QA_flashcard = True
 
     if b_modified_lo_do_QA_flashcard:
-        do_p_fn_rename_w_timestamp(lo_p_fn_flashcard, p_QA)
+        do_p_fn_rename_w_timestamp(lo_p_fn_SR, p_QA)
 
 
-    if lo_do_QA_flashcard:
-        # lo_do_QA_flashcard.sort(key=lambda x: x["QA_ID"])
-        lo_do_QA_flashcard_sorted = sort_and_clear_lo_do_QA(lo_do_QA_flashcard)
-
-        # <font color="#494429">bleasePaternalismus2016_021_Fazit.md</font>
-        # <font color="#494429">(QA_ID_ABJFDY5I_04124ebe)</font>
+    if lo_do_QA_SR:
+        # lo_do_QA_SR.sort(key=lambda x: x["QA_ID"])
+        lo_do_QA_flashcard_sorted = sort_and_check_lo_do_QA(lo_do_QA_SR)
 
         with open(p_fn, 'w', encoding='utf-8') as f:
             for do in lo_do_QA_flashcard_sorted:
+                QA_ID = do.get("QA_ID", "")
+                QA_Q  = do.get("QA_Q", "")
+                QA_A  = do.get("QA_A", "")
+                # print(QA_ID)
                 lines = [
                     str(do.get("QA_deck", "")),
                     str(do.get("QA_Q", "")),
                     '?',
                     str(do.get("QA_A", "")),
-                    '.',
-                    get_colorized_string(str(do.get("fn", ""))),
-                    get_colorized_string(str(do.get("QA_ID", ""))),
+                    QA_separator,
+                    # get_colorized_string(str(do.get("fn_QA_SR", ""))),
+                    # get_colorized_string(str(do.get("QA_ID", ""))),
+                    str(do.get("fn_QA_SR", "")),
+                    str(do.get("QA_ID", "")),
                     str(do.get("QA_TimeStamp", ""))
                 ]
-
-                f.write('\n'.join(lines) + '\n\n')
+                SR_entry = '\n'.join(lines) + '\n\n'
+                f.write(SR_entry)
 
 def main():
-    # gets all obsidian notes in >p_root< and makes flashcard - obsidian note (or anki connection)
+    # gets all obsidian notes in >p_root< and makes flashcard - obsidian note (or anki connection).
     #
-    # (A bit stupid? Simply could have scanned all files for QA entries and written new QA-file?
+    # (Too complicated? Simply could have scanned all files for QA entries and written new QA-file?
     #  No! Because if QA in QA-file then there is a time stamp, that must be preserved.
     #  Therefor new QA-entries are appended to existing QA-file.)
 
 
     ini_path = 'tac.ini'
-    #   p_root, ext, p_QA, QA_tag = load_config(ini_path)
     load_config(ini_path)
 
-    # find all obsidian notes in file system:
-    all_notes_md   = find_files_with_extension(p_root, ext)
+    # find all obsidian notes in >p_root< or in >lo_subdir< of >p_root< (both are globals defined in >tac.ini<):
+    lo_fn_note    = get_lo_fn_path_with_extension(p_root, lo_subdir, ext)
 
-    # get >lo_do_QA_entry< == list of all QA in *.md but not in QA-files (flashcard|anki| ...)
-    lo_do_QA_entry = []
-    lo_do_QA_entry.extend(get_lo_qa_entry(all_notes_md))
+    # get >lo_do_QA_entry< == list of all QA-entries in *.md but not in QA-files (flashcard|anki| ...)
+    #   n.b.: see composition of >do_QA< == Q&A-entry in the header of >tac.py<.
+    lo_do_QA_entry = get_lo_QA_entry(lo_fn_note)
 
-    # pprint(lo_do_QA_entry)
-    # print("Total QA entries:", len(lo_do_QA_entry))
+    # get FILE NAMES: >lo_fn_SR< == FILES that contain Q&A-entries in _Spaced Repetition_ format.
+    # Only this/these files are used by the Spaced Repetition Plugin in Obsidian to define flashcards.
+    lo_fn_SR = get_lo_fn_SR()  # List of _FILE names_
 
-    # get FILE NAMES: >lo_p_fn_flashcard< == FILES that contain Q&As in flashcard format (== Spaced Repetition)
-    lo_p_fn_flashcard = get_lo_p_fn_flashcard(QA_tag, p_QA)
+    # >lo_do_QA_SR< == list of dict of all Q&A in flashcard FILE.
+    # This file contains all the hitherto known QA-entries. It will be extended by new QA-entries, if any.
+    #   Every entry in the SR-flashcard file has the desk-tag, the QA-text and an ID (like : 'QA_ID_6CIRLAJZ_723fcae1').
+    #   The plugin Space Repetition adds a time stamp (like: <!--SR:!2025-12-30,1,230-->)
 
-    # get >lo_do_QA_flashcard< == list of dict of all Q&A from flashcard FILES
-    lo_do_QA_flashcard = []
-    lo_do_QA_flashcard.extend(get_lo_do_QA_flashcard(lo_p_fn_flashcard))
+    # read existing QA_SR entries in flashcard FILE
+    lo_do_QA_SR = get_lo_do_QA_SR(lo_fn_SR)
 
-    # pprint(lo_do_QA_flashcard)
-    # print("Total QA entries:", len(lo_do_QA_flashcard))
+    # Merge QA from *.md and from QA-file
+    lo_do_QA_merged = get_lo_do_QA_merge(lo_do_QA_entry, lo_do_QA_SR)
 
-    # Merge QA from *.md and from QA-files
-    lo_do_QA_merged = get_merge_lo_do_QA(lo_do_QA_entry, lo_do_QA_flashcard)
-    # pprint(lo_do_QA_merged)
-    # print("Total QA_flashcard entries updated:", len(lo_do_QA_merged))
-    # print("Total QA entries:", len(lo_do_QA_flashcard))
-    # pprint(lo_do_QA_merged)
-
-    # write_flashcard_file(lo_do_QA_merged, p_QA=r'\obsidian_rh_GoogleDrive\99_QA', fn=fn_SR_QA)
-    write_flashcard_file(lo_do_QA_merged, p_QA = p_QA, fn = fn_SR_QA)
+    write_QA_SR_file(lo_do_QA_merged, p_QA = p_fn_QA, fn_QA_SR= fn_QA_SR)
+    print("Total QA_flashcard entries:  ", len(lo_do_QA_SR))
     print("Total QA entries in md-notes:", len(lo_do_QA_entry))
-    print("Total QA_flashcard entries:  ", len(lo_do_QA_flashcard))
+    print("New   QA entries in md-notes:", cnt_new_QA)
 
 if __name__ == "__main__":
     main()
