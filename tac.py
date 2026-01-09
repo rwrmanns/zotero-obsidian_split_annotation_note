@@ -536,6 +536,8 @@ def get_normalized_lo_do_QA(lo_do_QA, file_path, fn_QA, QA_zotero_hash):
         # get Q & A
         QA_Q, QA_A = get_QA_Q_and_A(s_QA)
 
+        QA_link    = do_QA["QA_heading_link"]
+
         # normalize Spaced Repetition tag:
         qa_tag     = get_normalized_QA_tag(do_QA["QA_tag"])
         do_QA["QA_tag"] = qa_tag
@@ -563,8 +565,8 @@ def get_normalized_lo_do_QA(lo_do_QA, file_path, fn_QA, QA_zotero_hash):
             "QA_Q"           : QA_Q,             # Question
             "QA_A"           : QA_A,             # Answer
 
-            #'QA_link'        : link_QA,          # link to note
-            'fn_QA'          : fn_QA,            # filename: origin of QA-block
+            "QA_link"        : QA_link,          # link to QA's heading
+            "fn_QA"          : fn_QA,            # filename: origin of QA-block
             "QA_ID"          : QA_ID,            # specific ID of QA + tag.
             "QA_d8_hash"     : QA_d8_hash,       # hash of (QA-Text + QA_tag)
                                                  # ?? if >QA_d8_hash< != third part of  >QA_ID<   => >QA< ond/or tag has changed.
@@ -808,7 +810,7 @@ def get_lo_QA_entry(lo_fn_note):
 
         # normalize every d_QA and add hash of Text of QA
         # Normalize and clean QA from Timestamp of Spaced Repetition and ID of tac.py and ...
-        # ... add: link_to_origin, file_path, fn_QA_SR, QA_zotero_hash
+        # ... add: file_path, fn_QA_SR, QA_zotero_hash
         lo_do_QA_entry.extend(get_normalized_lo_do_QA(lo_do_QA_entry_org, file_path, fn_QA, QA_zotero_hash))
 
     return lo_do_QA_entry
@@ -1197,6 +1199,11 @@ if __name__ == "__main__":
 #  - Clean the regexs' in >load_config(ini_path)<
 #  - remove the regexs' from >load_config(ini_path)<
 #  - add anki support
+#  - find a way to backlink the QA-blocks in the SR-file to the original note, the QA stems from.
+#    This seems to be tricky, since multiple QAs may have identical content and even filename,
+#    if they lay in different root directories. Then it's impossible to have unique links to
+#    them based only on fn and content.
+#
 
 
 # nb:
