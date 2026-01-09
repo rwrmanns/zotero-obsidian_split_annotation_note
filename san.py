@@ -1,10 +1,29 @@
+doc = '''
+san.py == split_annotation_note.py
+This script serves to split a input obsidian >zotero_note.md< into separate atomic notes.
+The obsidian note comes from zotero and can have annotations, each one after a separate header. 
+It will be split into several obsidian notes each containing one annotation. 
+The note title will be the header of the annotation.
+
+To get the obsidian >zotero_note.md< use: 
+'zotero integration plugin' with the >san.nunjucks.md< template. 
+It will fetch data from zotero to construct a obsidian note with appropriate structure and 
+marks to split the single note later by >san.py< into multiple notes each containing a single annotation.
+
+Compile >san.py< into >san.exe< via >pyinstaller --onefile -w 'san.py'<  and save it inthe obsidian directory tree.
+(I prefer: >... \obsidian\zz_Ressources_Templates\Split_Annotation_Notes__san< ).
+
+Call it using the obsidian plugin >Shell commands<. 
+
+Additionally it will insert sections that indicate QA-blocks. These blocks can later be used by the Spaced Repetition 
+plugin (after tac.py has transfered these blocks in a seperate file containing only QA's).
+ 
 '''
-san.py == split_in_atomic_notes.py
 
-
-This script serves to split a input obsidian_zotero s_content (aka 'source_note.md') into separate atomic notes.
-
+'''
 2025-09-28
+This script serves to split a input obsidian_zotero source_note.md (aka 's_content ') into separate atomic notes.
+
 Zotero Item Types and Fields:
     https://www.zotero.org/support/kb/item_types_and_fields
 
@@ -185,6 +204,13 @@ def show_info_popup(messages=None):
     """
     A standalone function to display a GUI popup with script info and custom messages.
     Usage: show_info_popup([("Header 1", "Message 1 text"), ("Header 2", "Message 2 text")])
+
+    l_s_popup = [
+        ("Status", "The operation completed successfully."),
+        ("Details", "Processed 15 files in the root directory."),
+        ("Notes", "No errors were encountered during the run.")
+    ]
+    show_info_popup(l_s_popup)
     """
 
     import tkinter as tk
@@ -1206,15 +1232,6 @@ def b_san_nunjucks_version_exists(p_fn: str):
 if __name__ == '__main__':
     # sys.argv[1] == >note.md< to be splitted.
 
-    # l_s_popup = [
-    #     ("Status", "The operation completed successfully."),
-    #     ("Details", "Processed 15 files in the root directory."),
-    #     ("Notes", "No errors were encountered during the run.")
-    # ]
-    #
-    # show_info_popup(l_s_popup)
-    # exit()
-
     print()
     if len(sys.argv) > 1:
         fn_note_source = sys.argv[1]
@@ -1222,8 +1239,9 @@ if __name__ == '__main__':
         p_fn_note_source: Path = Path(os.path.join(path_in, fn_note_source))
         print(f"Full path of >note.md< to read: {p_fn_note_source = }\n")
 
-        l_s_popup = [("File:", f"{fn_note_source}"), ("File (with path):", f"{p_fn_note_source}")]
+        l_s_popup = [("File", f"{fn_note_source}"), ("File (with path)", f"{p_fn_note_source}")]
         show_info_popup(l_s_popup)
+        print(doc)
 
     else:  # Test
         fn_note_source = "bismarkLegal2012.md"
@@ -1234,7 +1252,9 @@ if __name__ == '__main__':
         print(f"Full path of >note.md< to read: {p_fn_note_source = }\n")
 
         l_s_popup = [("No file parameter found.", f"Try default: {fn_note_source}"), ("File (with path):", f"{p_fn_note_source}"),]
+        l_s_popup = [("Info", f"{doc}"), ("File", f"{fn_note_source}"), ("File (with path)", f"{p_fn_note_source}")]
         show_info_popup(l_s_popup)
+        exit()
 
     p_fn_note_source: Path = Path(os.path.join(path_in, fn_note_source))
     print(f"Full path of >note.md< to read: {p_fn_note_source = }\n")
@@ -1256,13 +1276,9 @@ if __name__ == '__main__':
 #   Was ist >zotero_hash< genau? Wert kommt jedenfalls nicht von zotero.
 #   Ist evtl ein hash eines Textes einer annotation, der berechnet wird, um neuere Versionen von bestehenden zu unterscheiden??
 #   Aber es gibt ja den >content_hash< ?
-#   Am besten umbenennen >annotation_text_hash< ?
 
 # nb:
-#  pip freeze > requirements.txt
-#  .
-#  To change or delete tags in onsidian notes:
-#  find . -name '*.md' -exec sed -i -e 'QA_A/string_111/string_222/g' {} \;
+#  pip freeze > san_requirements.txt
 #  .
 #  >*.py<  transform in *.exe
 #       >_ pip install pyinstaller
@@ -1270,7 +1286,7 @@ if __name__ == '__main__':
 #  .
 #  Obsidian community plugin: 'Shell commands' calls >san.exe< via shortcut
 #    https://github.com/Taitava/obsidian-shellcommands
-#  .
+#    .
 #    ctrl-P > Shell commands: Execute Split Into Annotation Notes (SAN)
 #    >_Shell commands: (insert:)
 #      "C:\Users\rh\Meine Ablage\obsidian_rh_GoogleDrive\zz_Templates_Scripts\Nunjucks_Templates\san.exe" "{{file_path:absolute}}"
@@ -1278,5 +1294,10 @@ if __name__ == '__main__':
 #         /* with:  "{{file_path:absolute}}"  ==   "Gives the current file name with file ext" */
 #      Output: Outputchannel for stdout: Notification balloon
 #      Output: Outputchannel for stderr: Error balloon
+#  .
+#  .
+#  .
+#  To change or delete tags in obsidian notes:
+#  find . -name '*.md' -exec sed -i -e 'QA_A/string_111/string_222/g' {} \;
 
 

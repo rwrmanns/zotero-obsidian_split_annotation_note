@@ -1207,7 +1207,7 @@ if __name__ == "__main__":
 
 
 # nb:
-#  pip freeze > requirements.txt
+#  pip freeze > san_requirements.txt
 #  .
 #  find . -name '*.md' -exec sed -i -e 'QA_A/string_111/string_222/g' {} \;
 #  .

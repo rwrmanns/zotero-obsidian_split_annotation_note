@@ -1,9 +1,13 @@
 ---
-{# nunjucks-template to import zotero sources into obsidian via 'zotero integration plugin' -#}
-{# Save as *.md file - otherwise 'zotero integration plugin' can't make use of it. -#}
+{# san.nunjucks is a template to import zotero sources into obsidian via 'zotero integration plugin' -#}
+{# !!! Save as >san.nunjucks.md< file - otherwise 'zotero integration plugin' can't make use of it. !!! -#}
+{# In 'zotero integration plugin' define it as 'Template File' -#}
+{# Remember to start zotero! -#}
+{# Start obsidian, Ctrl-P -> 'zotero integration plugin' ... should call zotero, select pdf with annotations... -#}
 {# Thanks to mgmeyers! Inspired partly by Elena Razlogova and others. -#}
+{#  -#}
 {# Three underscores at begin of line -> horizontal line. -#}
-{# Minus sign at beginning/end of comment eats up spaces, but not: -#}
+{# Minus sign at beginning/end of comment eats up spaces -#}
 {# \n == two spaces at begin of line  -#}
 {# https://github.com/alex-kline/obsidian-zotero/ -#}
 {% if citekey %}title: {{citekey}}{% endif %}
