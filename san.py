@@ -1285,8 +1285,6 @@ if __name__ == '__main__':
 #  >*.py<  transform in *.exe
 #       >_ pip install pyinstaller
 #       >_ pyinstaller --onefile -w 'san.py'
-#       >_ copy 'san.exe' to dir where it is found by 'obsidian plugin 'Shell commands' '
-#       >  ( >...\obsidian\zz_Ressources_Templates\Split_Annotation_Notes__san< )
 #  .
 #  Obsidian community plugin: 'Shell commands' calls >san.exe< via shortcut
 #    https://github.com/Taitava/obsidian-shellcommands
@@ -1299,9 +1297,9 @@ if __name__ == '__main__':
 #      Output: Outputchannel for stdout: Notification balloon
 #      Output: Outputchannel for stderr: Error balloon
 #  .
-#  .
-#  .
 #  To change or delete tags in obsidian notes:
 #  find . -name '*.md' -exec sed -i -e 'QA_A/string_111/string_222/g' {} \;
+#   .
+#   grep -rli --include="*.md" "print filename of file containing this string" .
 
 

@@ -1191,3 +1191,5 @@ if __name__ == "__main__":
 #  .
 #  To change or delete tags in obsidian notes:
 #  find . -name '*.md' -exec sed -i -e 'QA_A/string_111/string_222/g' {} \;
+#   .
+#   grep -rli --include="*.md" "print filename of file containing this string" .
