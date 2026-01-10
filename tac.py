@@ -1163,8 +1163,6 @@ if __name__ == "__main__":
     main()
 
 # ToDo:
-#  - Clean the regexs' in >load_config(ini_path)<
-#  - remove the regexs' from >load_config(ini_path)<
 #  - add anki support
 #  - find a way to backlink the QA-blocks in the SR-file to the original note, the QA stems from.
 #    This seems to be tricky, since multiple QAs may have identical content and even filename,
