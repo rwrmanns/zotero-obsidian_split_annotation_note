@@ -119,7 +119,9 @@ def get_rgx_QA_block():
 
     # Stop Tag / Separator: The literal ___ or --- or the start of a new tag
     # We use a Lookahead (?=...) so we check for the stop tag but do not include it in the match
-    rgx_stop_lookahead = fr"(?=^{rgx_start}|^(?:---|___)\s*$|\Z)"
+    # rgx_stop_lookahead = fr"(?=^{rgx_start}|^(?:---|___)\s*$|\Z)"
+    rgx_md_header  = r"^(#{1,6})\s+(.+)$"
+    rgx_stop_lookahead = fr"(?=^{rgx_start}|^(?:---|___)\s*$|\Z|{rgx_md_header})"
 
     # 3. Compile the Full Regex
     # Pattern: (Start_Tag)(Content)(Stop_Lookahead)
@@ -185,46 +187,11 @@ def load_config(ini_path):
 
 
     #########  rgx_QA_block  ###########
+    #          tags
     QA_lo_start_tag  = ['#flashcards', '#QA']
     lo_QA_startword  = [re.escape(sw) for sw in QA_lo_start_tag]
     s_startword_tail = r"[A-Za-z0-9_/\-\\]{0,25}"
     rgx_QA_startword = r"(?:%s)%s" % ("|".join(lo_QA_startword), s_startword_tail)
-
-    # QA_lo_start_tag = ['#flashcards', '#QA']
-    # lo_QA_startword = [re.escape(sw) for sw in QA_lo_start_tag]
-    # s_startword_tail = r"_[A-Za-z0-9_/\-\\]{0,25}"
-    #
-    # rgx_QA_startword = rf'^({"|".join(lo_QA_startword)}){s_startword_tail}?$'
-
-
-    # Escape each tag so '#' and other characters become literal.
-    rgx_QA_lo_start_tag = "|".join(re.escape(tag) + r"_[A-Za-z0-9._-]+" for tag in QA_lo_start_tag)  # tag + file-safe chars
-
-    # Compile begin-regex (still matches only at the beginning of a line)
-    rgx_QA_block_begin = re.compile(rf"^(?:{rgx_QA_lo_start_tag})", re.MULTILINE)
-
-    # Compile begin-regex (still matches only at the beginning of a line)
-    # rgx_QA_block_begin = re.compile(rf"^(?:{rgx_QA_startword})", re.MULTILINE)
-
-    QA_lo_stop_tag = ["Quelle: ", "source: "]
-
-    # Combine:
-    # - fixed stopword lines (escaped)
-    # - block-begin lines as QA_lo_stop_tag (so a new block ends the previous one)
-    rgx_QA_lo_stop_tag = "|".join([re.escape(w) for w in QA_lo_stop_tag] + [rgx_QA_lo_start_tag])
-
-    # MAIN BLOCK EXTRACTION REGEX
-    rgx_QA_block = re.compile(
-        rf"""
-        (?P<begin> {rgx_QA_block_begin.pattern}   # block starts here
-        )
-        (?P<body>  .*?                            # non-greedy body text
-        )
-        (?= ^(?:{rgx_QA_lo_stop_tag})             # stop BEFORE stopword/next block
-        )
-        """,
-        re.DOTALL | re.MULTILINE | re.VERBOSE
-    )
 
     rgx_QA_block, rgx_norm_QA_deck = get_rgx_QA_block()
 
@@ -1209,15 +1176,13 @@ if __name__ == "__main__":
 # nb:
 #  pip freeze > san_requirements.txt
 #  .
-#  find . -name '*.md' -exec sed -i -e 'QA_A/string_111/string_222/g' {} \;
-#  .
-#  >san.py<  transform in *.exe
+#  >*.py<  transform in *.exe
 #       >_ pip install pyinstaller
 #       >_ pyinstaller --onefile -w 'san.py'
 #  .
 #  Obsidian community plugin: 'Shell commands' calls >san.exe< via shortcut
 #    https://github.com/Taitava/obsidian-shellcommands
-#  .
+#    .
 #    ctrl-P > Shell commands: Execute Split Into Annotation Notes (SAN)
 #    >_Shell commands: (insert:)
 #      "C:\Users\rh\Meine Ablage\obsidian_rh_GoogleDrive\zz_Templates_Scripts\Nunjucks_Templates\san.exe" "{{file_path:absolute}}"
@@ -1225,3 +1190,6 @@ if __name__ == "__main__":
 #         /* with:  "{{file_path:absolute}}"  ==   "Gives the current file name with file ext" */
 #      Output: Outputchannel for stdout: Notification balloon
 #      Output: Outputchannel for stderr: Error balloon
+#  .
+#  To change or delete tags in obsidian notes:
+#  find . -name '*.md' -exec sed -i -e 'QA_A/string_111/string_222/g' {} \;

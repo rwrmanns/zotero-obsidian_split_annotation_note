@@ -1,22 +1,24 @@
 doc = '''
-san.py == split_annotation_note.py
-This script serves to split a input obsidian >zotero_note.md< into separate atomic notes.
-The obsidian note comes from zotero and can have annotations, each one after a separate header. 
-It will be split into several obsidian notes each containing one annotation. 
-The note title will be the header of the annotation.
+The script san.py (compiled to san.exe) serves to split an input obsidian >zotero_note.md< into separate atomic notes.  
 
-To get the obsidian >zotero_note.md< use: 
-'zotero integration plugin' with the >san.nunjucks.md< template. 
-It will fetch data from zotero to construct a obsidian note with appropriate structure and 
-marks to split the single note later by >san.py< into multiple notes each containing a single annotation.
+Workflow: 
+1. The zotero integration plugin imports an obsidian note (name it >zotero_note.md<) from zotero.
+   This note can have multiple annotations, each one after a separate header. 
+2. This single note will be split by san.exe into multiple other notes, each containing one annotation. 
+   The note title will be the header of the annotation.  
+  
+The  zotero integration plugin uses a specific template, called san.nunjucks.md. 
+The plugin will fetch data from zotero to construct a obsidian note with appropriate structure and marks.
+These marks help san.exe to split the single note later into multiple notes.  
 
-Compile >san.py< into >san.exe< via >pyinstaller --onefile -w 'san.py'<  and save it inthe obsidian directory tree.
-(I prefer: >... \obsidian\zz_Ressources_Templates\Split_Annotation_Notes__san< ).
+Additionally it will insert sections that indicate QA-blocks. These blocks can later be used by the Spaced Repetition plugin.
+To realize this, another python script tac.py transfers these blocks into a separate file containing only QAs. 
+It is this file, that is used by Spaced Repetition.
 
-Call it using the obsidian plugin >Shell commands<. 
-
-Additionally it will insert sections that indicate QA-blocks. These blocks can later be used by the Spaced Repetition 
-plugin (after tac.py has transfered these blocks in a seperate file containing only QA's).
+Compile >san.py< into >san.exe< via >pyinstaller --onefile -w 'san.py'<  and save it in the obsidian directory tree.  
+(I prefer: >... \obsidian\zz_Ressources_Templates\Split_Annotation_Notes__san< ).  
+  
+Call san.exe using the obsidian plugin >Shell commands<.   
  
 '''
 
@@ -1283,6 +1285,8 @@ if __name__ == '__main__':
 #  >*.py<  transform in *.exe
 #       >_ pip install pyinstaller
 #       >_ pyinstaller --onefile -w 'san.py'
+#       >_ copy 'san.exe' to dir where it is found by 'obsidian plugin 'Shell commands' '
+#       >  ( >...\obsidian\zz_Ressources_Templates\Split_Annotation_Notes__san< )
 #  .
 #  Obsidian community plugin: 'Shell commands' calls >san.exe< via shortcut
 #    https://github.com/Taitava/obsidian-shellcommands
